@@ -178,6 +178,15 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
     ? calculateFlightPoints({ earningMethod, distanceMiles, bookingType, fareOption })
     : (item.statusPoints || 0)
 
+  useEffect(() => {
+    setEditing(!item.bookingType || item.fareSource === 'estimated' || item.fareSource === 'default')
+    setBookingType(item.bookingType || '')
+    setFareOption(item.fareOption || '')
+    setPnr(item.confirmationNumber || '')
+    setDistanceMiles(item.distanceMiles || 0)
+    setShowEmail(false)
+  }, [item.id])
+
   useEffect(() => { onEditingChange?.(editing) }, [editing])
 
   function handleConfirmTap() {
@@ -422,7 +431,7 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
               className="absolute inset-x-0 top-2 pointer-events-none"
               style={{ transform: 'scale(0.96)', transformOrigin: 'top center', zIndex: 1 }}
             >
-              <CardPeek key={nextItem.id} item={nextItem} />
+              <CardPeek item={nextItem} />
             </div>
           )}
 
@@ -436,7 +445,6 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
             onPointerCancel={handlePointerUp}
           >
             <SwipeCardContent
-              key={currentItem.id}
               item={currentItem}
               earningMethod={earningMethod}
               confirmOpacity={confirmOpacity}
