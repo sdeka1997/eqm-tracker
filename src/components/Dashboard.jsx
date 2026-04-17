@@ -279,7 +279,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                     <h2 className="font-semibold text-slate-800">Flights</h2>
                     <button onClick={() => setModal('flight')} className="text-xs text-alaska-blue hover:underline font-medium">+ Add</button>
                   </div>
-                  {year >= 2026 && (
+                  {year >= 2026 && activities.filter(a => a.type === 'flight' || !a.type).length > 0 && (
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setModal('flighty')}

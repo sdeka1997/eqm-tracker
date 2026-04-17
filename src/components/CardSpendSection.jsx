@@ -82,7 +82,7 @@ export default function CardSpendSection({ activities, onDelete, onUpdate, onDel
               <h2 className="font-semibold text-slate-800">Card Spend</h2>
               <button onClick={onAddManual} className="text-xs text-alaska-blue hover:underline font-medium">+ Add</button>
             </div>
-            {onSync && (
+            {onSync && cardItems.length > 0 && (
               <button
                 onClick={onSync}
                 className="text-xs border border-slate-200 text-slate-500 hover:border-alaska-teal hover:text-alaska-teal px-2.5 py-0.5 rounded-full transition-colors"
