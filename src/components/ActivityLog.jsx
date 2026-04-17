@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { calculateFlightPoints, FARE_OPTIONS, formatMonth, groupByMonth } from '../utils/calculations'
 import FlightFields from './FlightFields'
 import Modal from './Modal'
+import { useEscapeClose } from '../hooks/useEscapeClose'
 
 function FlightEditModal({ flight, earningMethod, onSave, onClose }) {
+  useEscapeClose(onClose)
   const [distanceMiles, setDistanceMiles] = useState(flight.distanceMiles || 0)
   const [bookingType, setBookingType] = useState(flight.bookingType || '')
   const [fareOption, setFareOption] = useState(flight.fareOption || '')

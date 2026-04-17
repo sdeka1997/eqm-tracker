@@ -3,12 +3,9 @@ import Modal from './Modal'
 export default function FlightSetupModal({ onSelect, onClose }) {
   return (
     <Modal onClose={onClose}>
-        <div className="p-5 border-b border-slate-100 flex items-center justify-between">
-          <div>
-            <h2 className="font-semibold text-slate-800">Add your flights</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Choose how you'd like to get started</p>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+        <div className="p-5 border-b border-slate-100">
+          <h2 className="font-semibold text-slate-800">Add your flights</h2>
+          <p className="text-xs text-slate-400 mt-0.5">Choose how you'd like to get started</p>
         </div>
         <div className="p-4 space-y-3">
           <button
