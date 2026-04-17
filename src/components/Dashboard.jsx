@@ -279,6 +279,25 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
             </div>
 
 
+            {/* Review queue — mobile only (desktop renders in right column) */}
+            {pending.length > 0 && (
+              <div className="lg:hidden">
+                <ReviewQueue
+                  pending={pending}
+                  earningMethod={earningMethod}
+                  onConfirm={async (confirmed) => {
+                    if (confirmed.confirmationNumber && allActivitiesByPNR.has(confirmed.confirmationNumber)) {
+                      await removeActivity(allActivitiesByPNR.get(confirmed.confirmationNumber).id)
+                    }
+                    await addActivity({ ...confirmed, year: confirmed.year || year })
+                    await dismissPending(confirmed.id)
+                  }}
+                  onSkip={dismissPending}
+                  onClearAll={clearAllPending}
+                />
+              </div>
+            )}
+
             {/* Flights */}
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
               <div className="mb-4">
@@ -360,21 +379,23 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
           <div className="lg:col-span-2 flex flex-col gap-6">
 
 
-            {/* Review queue */}
+            {/* Review queue — desktop only (mobile renders above flights) */}
             {pending.length > 0 && (
-              <ReviewQueue
-                pending={pending}
-                earningMethod={earningMethod}
-                onConfirm={async (confirmed) => {
-                  if (confirmed.confirmationNumber && allActivitiesByPNR.has(confirmed.confirmationNumber)) {
-                    await removeActivity(allActivitiesByPNR.get(confirmed.confirmationNumber).id)
-                  }
-                  await addActivity({ ...confirmed, year: confirmed.year || year })
-                  await dismissPending(confirmed.id)
-                }}
-                onSkip={dismissPending}
-                onClearAll={clearAllPending}
-              />
+              <div className="hidden lg:block">
+                <ReviewQueue
+                  pending={pending}
+                  earningMethod={earningMethod}
+                  onConfirm={async (confirmed) => {
+                    if (confirmed.confirmationNumber && allActivitiesByPNR.has(confirmed.confirmationNumber)) {
+                      await removeActivity(allActivitiesByPNR.get(confirmed.confirmationNumber).id)
+                    }
+                    await addActivity({ ...confirmed, year: confirmed.year || year })
+                    await dismissPending(confirmed.id)
+                  }}
+                  onSkip={dismissPending}
+                  onClearAll={clearAllPending}
+                />
+              </div>
             )}
 
             {/* Card spend */}

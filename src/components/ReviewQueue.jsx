@@ -323,7 +323,7 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
   const [offsetX, setOffsetX] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
   const [exitDir, setExitDir] = useState(null)
-  const [isEditing, setIsEditing] = useState(false)
+  const isDraggingRef = useRef(false)
   const startXRef = useRef(0)
 
   const THRESHOLD = 80
@@ -338,24 +338,24 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
 
   const cardTransform = exitDir
     ? `translateX(${exitDir === 'right' ? '130vw' : '-130vw'}) rotate(${exitDir === 'right' ? 25 : -25}deg)`
-    : `translateX(${isDragging ? offsetX : 0}px) rotate(${isDragging ? rotation : 0}deg)`
+    : `translateX(${offsetX}px) rotate(${rotation}deg)`
 
-  const cardTransition = (exitDir || !isDragging) ? 'transform 0.28s ease-out' : 'none'
+  const cardTransition = exitDir ? 'transform 0.28s ease-out' : 'none'
 
   function handlePointerDown(e) {
-    if (isEditing) return
     startXRef.current = e.clientX
+    isDraggingRef.current = true
     setIsDragging(true)
-    e.currentTarget.setPointerCapture(e.pointerId)
   }
 
   function handlePointerMove(e) {
-    if (!isDragging) return
+    if (!isDraggingRef.current) return
     setOffsetX(e.clientX - startXRef.current)
   }
 
   function handlePointerUp() {
-    if (!isDragging) return
+    if (!isDraggingRef.current) return
+    isDraggingRef.current = false
     setIsDragging(false)
     if (offsetX >= THRESHOLD) doConfirm()
     else if (offsetX <= -THRESHOLD) doDismiss()
@@ -407,7 +407,7 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
       ))}
 
       {queue.length > 0 ? (
-        <div className="relative" style={{ minHeight: '220px' }}>
+        <div className="relative">
           {/* Next card peeking behind */}
           {nextItem && (
             <div
@@ -418,9 +418,9 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
             </div>
           )}
 
-          {/* Current swipeable card */}
+          {/* Current swipeable card — position: relative keeps container height correct */}
           <div
-            className="absolute inset-x-0 top-0 cursor-grab active:cursor-grabbing"
+            className="relative cursor-grab active:cursor-grabbing"
             style={{ transform: cardTransform, transition: cardTransition, zIndex: 2, touchAction: 'none' }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
@@ -434,7 +434,6 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
               dismissOpacity={dismissOpacity}
               onConfirm={(updatedData) => doConfirm(currentItem, updatedData)}
               onDismiss={() => doDismiss(currentItem)}
-              onEditingChange={setIsEditing}
             />
           </div>
         </div>
