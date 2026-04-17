@@ -14,7 +14,7 @@ import CardSpendSection from './CardSpendSection'
 import MiscSection from './MiscSection'
 import ReviewQueue from './ReviewQueue'
 import { usePending } from '../hooks/usePending'
-import { getCurrentTier, getNextTier, EARNING_METHODS, CURRENT_YEAR } from '../utils/calculations'
+import { getCurrentTier, getNextTier, EARNING_METHODS, CURRENT_YEAR, calculateCardSpendPoints } from '../utils/calculations'
 
 const EARNING_METHOD_KEY = 'atmos_earning_method'
 
@@ -241,17 +241,8 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                 const flightEarned = activities.filter(a => (a.type === 'flight' || !a.type) && (a.date || '') <= today).reduce((s, a) => s + (a.statusPoints || 0), 0)
                 const flightPlanned = activities.filter(a => (a.type === 'flight' || !a.type) && (a.date || '') > today).reduce((s, a) => s + (a.statusPoints || 0), 0)
 
-                const cardSP = (acts) => {
-                  const byMonth = {}
-                  acts.filter(a => a.type === 'card_spend').forEach(a => {
-                    const m = (a.date || '').slice(0, 7)
-                    byMonth[m] = (byMonth[m] || 0) + (a.amount || 0)
-                  })
-                  return Object.values(byMonth).reduce((s, m) => s + Math.round(m / 2), 0)
-                    + acts.filter(a => a.type === 'anniversary_bonus').reduce((s, a) => s + (a.statusPoints || 0), 0)
-                }
-                const cardEarned = cardSP(activities.filter(a => (a.date || '') <= today))
-                const cardPlanned = cardSP(activities.filter(a => (a.date || '') > today))
+                const cardEarned = calculateCardSpendPoints(activities.filter(a => (a.date || '') <= today))
+                const cardPlanned = calculateCardSpendPoints(activities.filter(a => (a.date || '') > today))
 
                 const miscEarned = activities.filter(a => a.type === 'misc' && (a.date || '') <= today).reduce((s, a) => s + (a.statusPoints || 0), 0)
                 const miscPlanned = activities.filter(a => a.type === 'misc' && (a.date || '') > today).reduce((s, a) => s + (a.statusPoints || 0), 0)

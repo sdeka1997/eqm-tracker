@@ -1,14 +1,6 @@
 import { useState, useEffect } from 'react'
-import { calculateFlightPoints, FARE_OPTIONS } from '../utils/calculations'
+import { calculateFlightPoints, FARE_OPTIONS, BOOKING_TYPE_SHORT } from '../utils/calculations'
 import FlightFields from './FlightFields'
-
-const BOOKING_TYPE_SHORT = {
-  alaska_direct:      'Alaska / Horizon / Hawaiian (via Alaska)',
-  hawaiian_direct:    'Hawaiian (via Hawaiian)',
-  partner_via_alaska: 'Partner (via Alaska)',
-  partner_direct:     'Partner (direct)',
-  award:              'Award',
-}
 
 function EmailPreviewModal({ subject, from, html, onClose }) {
   useEffect(() => {

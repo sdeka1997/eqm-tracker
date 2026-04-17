@@ -18,7 +18,5 @@ export const db = getFirestore(app)
 export const functions = getFunctions(app)
 
 export const googleProvider = new GoogleAuthProvider()
-// Calendar: read Flighty events
-googleProvider.addScope('https://www.googleapis.com/auth/calendar.readonly')
 // Gmail: read confirmation emails to extract fare class
 googleProvider.addScope('https://www.googleapis.com/auth/gmail.readonly')

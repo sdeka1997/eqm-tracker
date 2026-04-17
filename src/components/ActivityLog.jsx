@@ -1,21 +1,6 @@
 import { useState } from 'react'
-import { calculateFlightPoints, FARE_OPTIONS } from '../utils/calculations'
+import { calculateFlightPoints, FARE_OPTIONS, formatMonth, groupByMonth } from '../utils/calculations'
 import FlightFields from './FlightFields'
-
-const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-
-function formatMonth(yearMonth) {
-  const [y, m] = yearMonth.split('-')
-  return `${MONTH_NAMES[parseInt(m) - 1]} ${y}`
-}
-
-const BOOKING_TYPE_SHORT = {
-  alaska_direct:      'Alaska',
-  hawaiian_direct:    'Hawaiian',
-  partner_via_alaska: 'Partner via AS',
-  partner_direct:     'Partner direct',
-  award:              'Award',
-}
 
 function FlightEditModal({ flight, earningMethod, onSave, onClose }) {
   const [distanceMiles, setDistanceMiles] = useState(flight.distanceMiles || 0)
@@ -117,13 +102,7 @@ export default function ActivityLog({ activities, earningMethod, onDelete, onUpd
     )
   }
 
-  // Group by month
-  const byMonth = {}
-  for (const f of flights) {
-    const month = (f.date || '').slice(0, 7)
-    if (!byMonth[month]) byMonth[month] = []
-    byMonth[month].push(f)
-  }
+  const byMonth = groupByMonth(flights)
   const months = Object.keys(byMonth).sort((a, b) => b.localeCompare(a))
 
   const editingFlight = flights.find(f => f.id === editing)

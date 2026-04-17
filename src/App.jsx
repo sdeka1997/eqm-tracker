@@ -66,7 +66,6 @@ export default function App() {
             </svg>
             Sign in with Google
           </button>
-          <p className="text-xs text-slate-400 mt-3">Also requests Google Calendar access for Flighty sync</p>
         </div>
       </div>
     )

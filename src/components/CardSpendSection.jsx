@@ -1,11 +1,5 @@
 import { useState, useEffect } from 'react'
-
-const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-
-function formatMonth(yearMonth) {
-  const [y, m] = yearMonth.split('-')
-  return `${MONTH_NAMES[parseInt(m) - 1]} ${y}`
-}
+import { formatMonth, groupByMonth, calculateCardSpendPoints } from '../utils/calculations'
 
 function EditDateModal({ activity, onSave, onClose }) {
   const [date, setDate] = useState(activity.date || '')
@@ -68,23 +62,9 @@ export default function CardSpendSection({ activities, onDelete, onUpdate, onDel
 
   const cardItems = activities.filter(a => a.type === 'card_spend' || a.type === 'anniversary_bonus')
 
-  // Group by month (YYYY-MM)
-  const byMonth = {}
-  for (const a of cardItems) {
-    const month = (a.date || '').slice(0, 7)
-    if (!byMonth[month]) byMonth[month] = []
-    byMonth[month].push(a)
-  }
-
+  const byMonth = groupByMonth(cardItems)
   const months = Object.keys(byMonth).sort((a, b) => b.localeCompare(a))
-
-  const cardByMonth = {}
-  cardItems.filter(a => a.type === 'card_spend').forEach(a => {
-    const month = (a.date || '').slice(0, 7)
-    cardByMonth[month] = (cardByMonth[month] || 0) + (a.amount || 0)
-  })
-  const bonusTotalSP = cardItems.filter(a => a.type === 'anniversary_bonus').reduce((sum, a) => sum + (a.statusPoints || 0), 0)
-  const totalSP = Object.values(cardByMonth).reduce((sum, m) => sum + Math.round(m / 2), 0) + bonusTotalSP
+  const totalSP = calculateCardSpendPoints(cardItems)
 
   async function handleSaveDate(newDate) {
     if (newDate && newDate !== editingActivity.date) {

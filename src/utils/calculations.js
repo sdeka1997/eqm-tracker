@@ -1,3 +1,28 @@
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+export function formatMonth(yearMonth) {
+  const [y, m] = yearMonth.split('-')
+  return `${MONTH_NAMES[parseInt(m) - 1]} ${y}`
+}
+
+export function groupByMonth(items) {
+  const byMonth = {}
+  for (const item of items) {
+    const month = (item.date || '').slice(0, 7)
+    if (!byMonth[month]) byMonth[month] = []
+    byMonth[month].push(item)
+  }
+  return byMonth
+}
+
+export const BOOKING_TYPE_SHORT = {
+  alaska_direct:      'Alaska / Horizon / Hawaiian (via Alaska)',
+  hawaiian_direct:    'Hawaiian (via Hawaiian)',
+  partner_via_alaska: 'Partner (via Alaska)',
+  partner_direct:     'Partner (direct)',
+  award:              'Award',
+}
+
 export const TIERS = [
   { name: 'Silver',   points: 20000,  color: 'bg-slate-400',  textColor: 'text-slate-600',  oneworld: 'Ruby' },
   { name: 'Gold',     points: 40000,  color: 'bg-yellow-500', textColor: 'text-yellow-700', oneworld: 'Sapphire' },
@@ -83,6 +108,17 @@ export function calculateFlightPoints({ earningMethod, distanceMiles, ticketPric
 
 export function calculateCardPoints(amount) {
   return Math.floor((amount || 0) / 2)
+}
+
+export function calculateCardSpendPoints(activities) {
+  const byMonth = {}
+  activities.filter(a => a.type === 'card_spend').forEach(a => {
+    const month = (a.date || '').slice(0, 7)
+    byMonth[month] = (byMonth[month] || 0) + (a.amount || 0)
+  })
+  const cardSP = Object.values(byMonth).reduce((sum, m) => sum + Math.round(m / 2), 0)
+  const bonusSP = activities.filter(a => a.type === 'anniversary_bonus').reduce((sum, a) => sum + (a.statusPoints || 0), 0)
+  return cardSP + bonusSP
 }
 
 export function getTierProgress(totalPoints) {

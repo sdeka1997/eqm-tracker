@@ -4,6 +4,7 @@ import {
   query, where, serverTimestamp,
 } from 'firebase/firestore'
 import { db } from '../firebase'
+import { calculateCardSpendPoints } from '../utils/calculations'
 
 export function useActivities(uid, year) {
   const [activities, setActivities] = useState([])
@@ -60,15 +61,9 @@ export function useActivities(uid, year) {
 
   function calcPoints(acts) {
     const nonCard = acts
-      .filter(a => a.type !== 'card_spend')
+      .filter(a => a.type !== 'card_spend' && a.type !== 'anniversary_bonus')
       .reduce((sum, a) => sum + (a.statusPoints || 0), 0)
-    const byMonth = {}
-    acts.filter(a => a.type === 'card_spend').forEach(a => {
-      const month = (a.date || '').slice(0, 7)
-      byMonth[month] = (byMonth[month] || 0) + (a.amount || 0)
-    })
-    const card = Object.values(byMonth).reduce((sum, m) => sum + Math.round(m / 2), 0)
-    return nonCard + card
+    return nonCard + calculateCardSpendPoints(acts)
   }
 
   const earnedPoints = calcPoints(activities.filter(a => (a.date || '') <= today))
