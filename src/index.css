@@ -7,6 +7,11 @@ body {
   color: #1e293b;
 }
 
+@keyframes swipe-card-enter {
+  from { transform: scale(0.96) translateY(4px); }
+  to   { transform: scale(1) translateY(0); }
+}
+
 /* Prevent iOS Safari from zooming on input focus (requires font-size >= 16px) */
 input, select, textarea {
   font-size: 16px !important;

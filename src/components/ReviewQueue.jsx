@@ -340,6 +340,7 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
   const [offsetX, setOffsetX] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
   const [exitDir, setExitDir] = useState(null)
+  const [entering, setEntering] = useState(false)
   const isDraggingRef = useRef(false)
   const startXRef = useRef(0)
 
@@ -348,6 +349,16 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
   const queue = pending.filter(p => !dismissedIds.has(p.id) && !confirmedIds.has(p.id))
   const currentItem = queue[0]
   const nextItem = queue[1]
+
+  const prevCurrentIdRef = useRef(currentItem?.id)
+  useEffect(() => {
+    if (currentItem?.id && currentItem.id !== prevCurrentIdRef.current) {
+      setEntering(true)
+      const t = setTimeout(() => setEntering(false), 280)
+      prevCurrentIdRef.current = currentItem.id
+      return () => clearTimeout(t)
+    }
+  }, [currentItem?.id])
 
   const confirmOpacity = Math.min(1, Math.max(0, offsetX / THRESHOLD))
   const dismissOpacity = Math.min(1, Math.max(0, -offsetX / THRESHOLD))
@@ -363,6 +374,7 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
     startXRef.current = e.clientX
     isDraggingRef.current = true
     setIsDragging(true)
+    setEntering(false)
   }
 
   function handlePointerMove(e) {
@@ -438,7 +450,10 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
           {/* Current swipeable card — position: relative keeps container height correct */}
           <div
             className="relative cursor-grab active:cursor-grabbing"
-            style={{ transform: cardTransform, transition: cardTransition, zIndex: 2, touchAction: 'none' }}
+            style={entering && !exitDir
+              ? { animation: 'swipe-card-enter 0.28s ease-out forwards', zIndex: 2, touchAction: 'none' }
+              : { transform: cardTransform, transition: cardTransition, zIndex: 2, touchAction: 'none' }
+            }
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
