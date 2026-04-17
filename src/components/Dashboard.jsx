@@ -37,7 +37,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
   const prevPendingLengthRef = useRef(pending.length)
   useEffect(() => {
     if (prevPendingLengthRef.current === 0 && pending.length > 0) {
-      reviewQueueRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      reviewQueueRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
     prevPendingLengthRef.current = pending.length
   }, [pending.length])
