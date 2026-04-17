@@ -193,7 +193,7 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
       {showEmail && (
         <EmailPreviewModal subject={item.emailSubject} from={item.emailFrom} html={item.emailHtml} onClose={() => setShowEmail(false)} />
       )}
-      <div className={`bg-white rounded-2xl border-2 shadow-lg overflow-hidden relative select-none min-h-[460px] sm:min-h-0 ${needsReview ? 'border-amber-200' : 'border-slate-100'}`}>
+      <div className={`bg-white rounded-2xl border-2 shadow-lg overflow-hidden relative select-none ${needsReview ? 'border-amber-200' : 'border-slate-100'}`}>
         {/* Confirm overlay */}
         <div className="absolute inset-0 bg-green-500/20 rounded-2xl flex items-center justify-start pl-5 pointer-events-none z-10" style={{ opacity: confirmOpacity }}>
           <span className="text-green-600 text-3xl font-black border-4 border-green-500 rounded-xl px-2.5 py-0.5" style={{ transform: 'rotate(-15deg)' }}>✓</span>
@@ -297,6 +297,33 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
 }
 
 
+function CardPeek({ item }) {
+  const isFlight = item.type === 'flight' || !item.type
+  const needsReview = isFlight && (!item.bookingType || item.fareSource === 'estimated' || item.fareSource === 'default' || !item.fareSource)
+  return (
+    <div className={`bg-white rounded-2xl border-2 px-4 py-4 shadow-lg ${needsReview ? 'border-amber-200' : 'border-slate-100'}`}>
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-base font-bold text-slate-800">
+              {isFlight ? `${item.origin} → ${item.destination}` : '💳 Card Spend'}
+            </span>
+            {needsReview && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">needs review</span>}
+          </div>
+          <div className="text-xs text-slate-400 mt-0.5">
+            {item.date}
+            {isFlight && item.distanceMiles ? ` · ${item.distanceMiles.toLocaleString()} mi` : ''}
+          </div>
+        </div>
+        <div className="text-right shrink-0">
+          <div className="text-xl font-black text-alaska-blue">+{(item.statusPoints || 0).toLocaleString()}</div>
+          <div className="text-xs text-slate-400">SP</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
   const [dismissedIds, setDismissedIds] = useState(new Set())
   const [confirmedIds, setConfirmedIds] = useState(new Set())
@@ -388,22 +415,14 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
       ))}
 
       {queue.length > 0 ? (
-        <div className="relative overflow-hidden">
-          {/* Next card behind — hidden during exit animation to prevent flash */}
-          {nextItem && !exitDir && (
+        <div className="relative">
+          {/* Minimal peek card — always shorter than the current card, so it hides naturally behind it */}
+          {nextItem && (
             <div
               className="absolute inset-x-0 top-2 pointer-events-none"
               style={{ transform: 'scale(0.96)', transformOrigin: 'top center', zIndex: 1 }}
             >
-              <SwipeCardContent
-                key={nextItem.id}
-                item={nextItem}
-                earningMethod={earningMethod}
-                confirmOpacity={0}
-                dismissOpacity={0}
-                onConfirm={() => {}}
-                onDismiss={() => {}}
-              />
+              <CardPeek key={nextItem.id} item={nextItem} />
             </div>
           )}
 
