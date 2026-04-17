@@ -11,14 +11,18 @@ export default function FlightFields({
   pnr, onPnrChange,
   size = 'md',
   hideDistance = false,
+  errors = {},
 }) {
   const cls = sizeClass[size]
   const lbl = labelClass[size]
   const fareOpts = FARE_OPTIONS[bookingType] || []
+  const errCls = (hasError) => hasError
+    ? cls.replace('border-slate-200', 'border-red-400').replace('focus:ring-alaska-blue', 'focus:ring-red-400')
+    : cls
 
   function handleBookingTypeChange(bt) {
     onBookingTypeChange(bt)
-    onFareOptionChange(FARE_OPTIONS[bt]?.[0]?.value || '')
+    onFareOptionChange('')
   }
 
   return (
@@ -31,7 +35,7 @@ export default function FlightFields({
           min="0"
           value={distanceMiles}
           onChange={e => onDistanceChange(parseInt(e.target.value) || 0)}
-          className={`w-full ${cls}`}
+          className={`w-full ${errCls(errors.distance)}`}
         />
       </div>
       )}
@@ -41,7 +45,7 @@ export default function FlightFields({
         <select
           value={bookingType}
           onChange={e => handleBookingTypeChange(e.target.value)}
-          className={`w-full ${cls}`}
+          className={`w-full ${errCls(errors.bookingType)}`}
         >
           <option value="" disabled>Select booking type…</option>
           {BOOKING_TYPES.map(t => (
@@ -56,8 +60,9 @@ export default function FlightFields({
           <select
             value={fareOption}
             onChange={e => onFareOptionChange(e.target.value)}
-            className={`w-full ${cls}`}
+            className={`w-full ${errCls(errors.fareOption)}`}
           >
+            <option value="" disabled>Select fare class…</option>
             {fareOpts.map(o => (
               <option key={o.value} value={o.value}>{o.label} · {o.multiplier}×</option>
             ))}

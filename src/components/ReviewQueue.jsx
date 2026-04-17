@@ -162,14 +162,14 @@ function CardSpendReviewCard({ item, onConfirm, onSkip }) {
 
 // ── Mobile swipe card ────────────────────────────────────────────────────────
 
-function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity, onConfirm, onDismiss, onEditingChange, onCanConfirmChange }) {
+function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity, onConfirm, onDismiss, onCanConfirmChange, confirmBlocked }) {
   const isFlight = item.type === 'flight' || !item.type
-  const [editing, setEditing] = useState(!item.bookingType || item.fareSource === 'estimated' || item.fareSource === 'default')
   const [showEmail, setShowEmail] = useState(false)
   const [bookingType, setBookingType] = useState(item.bookingType || '')
   const [fareOption, setFareOption] = useState(item.fareOption || '')
   const [pnr, setPnr] = useState(item.confirmationNumber || '')
   const [distanceMiles, setDistanceMiles] = useState(item.distanceMiles || 0)
+  const [showErrors, setShowErrors] = useState(false)
 
   const needsReview = isFlight && (item.fareSource === 'estimated' || item.fareSource === 'default' || !item.fareSource)
   const fareOpts = FARE_OPTIONS[bookingType] || []
@@ -178,21 +178,33 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
     ? calculateFlightPoints({ earningMethod, distanceMiles, bookingType, fareOption })
     : (item.statusPoints || 0)
 
-  const canConfirm = !isFlight || (!!bookingType && (earningMethod !== 'distance' || distanceMiles > 0))
+  const needsFareOption = isFlight && !!bookingType && bookingType !== 'award'
+  const canConfirm = !isFlight || (
+    !!bookingType &&
+    (!needsFareOption || !!fareOption) &&
+    (earningMethod !== 'distance' || distanceMiles > 0)
+  )
+
+  const fieldErrors = showErrors ? {
+    distance: distanceMiles === 0,
+    bookingType: !bookingType,
+    fareOption: needsFareOption && !fareOption,
+  } : {}
 
   useEffect(() => {
-    setEditing(!item.bookingType || item.fareSource === 'estimated' || item.fareSource === 'default')
     setBookingType(item.bookingType || '')
     setFareOption(item.fareOption || '')
     setPnr(item.confirmationNumber || '')
     setDistanceMiles(item.distanceMiles || 0)
     setShowEmail(false)
+    setShowErrors(false)
   }, [item.id])
 
-  useEffect(() => { onEditingChange?.(editing) }, [editing])
+  useEffect(() => { if (confirmBlocked) setShowErrors(true) }, [confirmBlocked])
   useEffect(() => { onCanConfirmChange?.(canConfirm) }, [canConfirm])
 
   function handleConfirmTap() {
+    if (!canConfirm) { setShowErrors(true); return }
     if (isFlight) {
       onConfirm({ bookingType, fareOption, fareLabel: selectedFare?.label || '', multiplier: selectedFare?.multiplier || 1, distanceMiles, statusPoints: livePoints, confirmationNumber: pnr || null })
     } else {
@@ -252,37 +264,19 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
           </div>
         </div>
 
-        {/* Fare info / edit for flights */}
+        {/* Flight fields — always visible */}
         {isFlight && (
           <div className="px-4 pb-3">
-            {!editing ? (
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-500">
-                  {bookingType ? `${BOOKING_TYPE_SHORT[bookingType]}${selectedFare ? ` · ${selectedFare.label}` : ''}` : 'Tap Edit to set fare'}
-                  {pnr ? ` · ${pnr}` : ''}
-                </span>
-                <button
-                  onPointerDown={e => e.stopPropagation()}
-                  onClick={e => { e.stopPropagation(); setEditing(true) }}
-                  className="text-xs text-alaska-blue hover:underline ml-2 shrink-0"
-                >
-                  Edit
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2 bg-slate-50 rounded-xl p-3">
-                <FlightFields
-                  distanceMiles={distanceMiles} onDistanceChange={setDistanceMiles}
-                  bookingType={bookingType} onBookingTypeChange={setBookingType}
-                  fareOption={fareOption} onFareOptionChange={setFareOption}
-                  pnr={pnr} onPnrChange={setPnr}
-                  size="sm"
-                />
-                <button onClick={() => setEditing(false)} className="text-xs text-slate-500 hover:text-slate-700 font-medium">
-                  Done editing ↑
-                </button>
-              </div>
-            )}
+            <div className="space-y-2 bg-slate-50 rounded-xl p-3">
+              <FlightFields
+                distanceMiles={distanceMiles} onDistanceChange={v => { setDistanceMiles(v); setShowErrors(false) }}
+                bookingType={bookingType} onBookingTypeChange={v => { setBookingType(v); setShowErrors(false) }}
+                fareOption={fareOption} onFareOptionChange={setFareOption}
+                pnr={pnr} onPnrChange={setPnr}
+                size="sm"
+                errors={fieldErrors}
+              />
+            </div>
           </div>
         )}
 
@@ -297,8 +291,7 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
           <div className="w-px bg-slate-100" />
           <button
             onClick={e => { e.stopPropagation(); handleConfirmTap() }}
-            disabled={!canConfirm}
-            className="flex-1 py-3 text-sm text-alaska-blue hover:bg-alaska-blue hover:text-white rounded-br-2xl transition-colors font-semibold disabled:opacity-40"
+            className="flex-1 py-3 text-sm text-alaska-blue hover:bg-alaska-blue hover:text-white rounded-br-2xl transition-colors font-semibold"
           >
             Confirm →
           </button>
@@ -347,12 +340,15 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
   const isDraggingRef = useRef(false)
   const startXRef = useRef(0)
   const canConfirmRef = useRef(true)
+  const [confirmBlocked, setConfirmBlocked] = useState(false)
 
   const THRESHOLD = 80
 
   const queue = pending.filter(p => !dismissedIds.has(p.id) && !confirmedIds.has(p.id))
   const currentItem = queue[0]
   const nextItem = queue[1]
+
+  useEffect(() => { setConfirmBlocked(false) }, [currentItem?.id])
 
   const prevCurrentIdRef = useRef(currentItem?.id)
   useEffect(() => {
@@ -375,6 +371,7 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
   const cardTransition = exitDir ? 'transform 0.28s ease-out' : 'none'
 
   function handlePointerDown(e) {
+    if (e.pointerType !== 'touch') return
     startXRef.current = e.clientX
     isDraggingRef.current = true
     setIsDragging(true)
@@ -391,35 +388,47 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
     isDraggingRef.current = false
     setIsDragging(false)
     if (offsetX >= THRESHOLD && canConfirmRef.current) doConfirm()
+    else if (offsetX >= THRESHOLD) { setOffsetX(0); setConfirmBlocked(true) }
     else if (offsetX <= -THRESHOLD) doDismiss()
     else setOffsetX(0)
   }
 
+  const isTouch = window.matchMedia('(pointer: coarse)').matches
+
   function doConfirm(item = currentItem, updatedData = {}) {
     if (!item) return
-    setExitDir('right')
-    setTimeout(() => {
+    if (isTouch) {
+      setExitDir('right')
+      setTimeout(() => {
+        setConfirmedIds(s => new Set([...s, item.id]))
+        setExitDir(null)
+        setOffsetX(0)
+        onConfirm({ ...item, ...updatedData })
+      }, 280)
+    } else {
       setConfirmedIds(s => new Set([...s, item.id]))
-      setExitDir(null)
-      setOffsetX(0)
       onConfirm({ ...item, ...updatedData })
-    }, 280)
+    }
   }
 
   function doDismiss(item = currentItem) {
     if (!item) return
     const label = (item.type === 'flight' || !item.type) ? `${item.origin} → ${item.destination}` : 'Card spend'
-    setExitDir('left')
     const timeoutId = setTimeout(() => {
       onSkip(item.id)
       setUndoQueue(q => q.filter(u => u.id !== item.id))
     }, 4000)
     setUndoQueue(q => [...q, { id: item.id, label, timeoutId }])
-    setTimeout(() => {
+    if (isTouch) {
+      setExitDir('left')
+      setTimeout(() => {
+        setDismissedIds(s => new Set([...s, item.id]))
+        setExitDir(null)
+        setOffsetX(0)
+      }, 280)
+    } else {
       setDismissedIds(s => new Set([...s, item.id]))
-      setExitDir(null)
-      setOffsetX(0)
-    }, 280)
+    }
   }
 
   function handleUndo(id) {
@@ -471,6 +480,7 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
               onConfirm={(updatedData) => doConfirm(currentItem, updatedData)}
               onDismiss={() => doDismiss(currentItem)}
               onCanConfirmChange={(v) => { canConfirmRef.current = v }}
+              confirmBlocked={confirmBlocked}
             />
           </div>
         </div>
@@ -494,94 +504,36 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
 
 // ── Main export ──────────────────────────────────────────────────────────────
 
-export default function ReviewQueue({ uid, pending, earningMethod, onConfirm, onSkip, onClearAll }) {
-  const [confirmingAll, setConfirmingAll] = useState(false)
-  const [clearing, setClearing] = useState(false)
-
+export default function ReviewQueue({ uid, pending, earningMethod, onConfirm, onSkip }) {
   if (pending.length === 0) return null
 
   const flights = pending.filter(p => p.type === 'flight' || !p.type)
   const cardSpend = pending.filter(p => p.type === 'card_spend')
 
-  async function handleConfirmAll() {
-    setConfirmingAll(true)
-    for (const item of pending) {
-      await onConfirm(item)
-    }
-    setConfirmingAll(false)
-  }
-
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="font-semibold text-slate-800">
-            Review Queue
-            <span className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-amber-500 text-white text-xs font-bold rounded-full">
-              {pending.length}
-            </span>
-          </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            {flights.length > 0 && cardSpend.length > 0
-              ? `${flights.length} flight${flights.length !== 1 ? 's' : ''} · ${cardSpend.length} card transaction${cardSpend.length !== 1 ? 's' : ''}`
-              : flights.length > 0
-              ? `${flights.length} flight${flights.length !== 1 ? 's' : ''} to review`
-              : `${cardSpend.length} card transaction${cardSpend.length !== 1 ? 's' : ''} to review`}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {pending.length > 1 && (
-            <button
-              onClick={handleConfirmAll}
-              disabled={confirmingAll || clearing}
-              className="text-xs bg-alaska-blue/10 hover:bg-alaska-blue hover:text-white text-alaska-blue px-3 py-1.5 rounded-lg font-semibold transition-colors disabled:opacity-50"
-            >
-              {confirmingAll ? 'Confirming…' : 'Confirm all'}
-            </button>
-          )}
-          {onClearAll && (
-            <button
-              onClick={async () => { setClearing(true); await onClearAll(); setClearing(false) }}
-              disabled={clearing || confirmingAll}
-              className="text-xs border border-red-200 text-red-500 hover:bg-red-50 px-3 py-1.5 rounded-lg font-semibold transition-colors disabled:opacity-50"
-            >
-              {clearing ? 'Clearing…' : 'Clear all'}
-            </button>
-          )}
-        </div>
+      <div className="mb-4">
+        <h2 className="font-semibold text-slate-800">
+          Review Queue
+          <span className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-amber-500 text-white text-xs font-bold rounded-full">
+            {pending.length}
+          </span>
+        </h2>
+        <p className="text-xs text-slate-400 mt-0.5">
+          {flights.length > 0 && cardSpend.length > 0
+            ? `${flights.length} flight${flights.length !== 1 ? 's' : ''} · ${cardSpend.length} card transaction${cardSpend.length !== 1 ? 's' : ''}`
+            : flights.length > 0
+            ? `${flights.length} flight${flights.length !== 1 ? 's' : ''} to review`
+            : `${cardSpend.length} card transaction${cardSpend.length !== 1 ? 's' : ''} to review`}
+        </p>
       </div>
 
-      {/* Mobile: swipe view */}
-      <div className="sm:hidden">
-        <SwipeQueue
-          pending={pending}
-          earningMethod={earningMethod}
-          onConfirm={onConfirm}
-          onSkip={onSkip}
-        />
-      </div>
-
-      {/* Desktop: list view */}
-      <div className="hidden sm:block space-y-3">
-        {pending.map(item => (
-          item.type === 'card_spend' ? (
-            <CardSpendReviewCard
-              key={item.id}
-              item={item}
-              onConfirm={confirmed => onConfirm(confirmed)}
-              onSkip={() => onSkip(item.id)}
-            />
-          ) : (
-            <FlightReviewCard
-              key={item.id}
-              flight={item}
-              earningMethod={earningMethod}
-              onConfirm={confirmed => onConfirm(confirmed)}
-              onSkip={() => onSkip(item.id)}
-            />
-          )
-        ))}
-      </div>
+      <SwipeQueue
+        pending={pending}
+        earningMethod={earningMethod}
+        onConfirm={onConfirm}
+        onSkip={onSkip}
+      />
     </div>
   )
 }
