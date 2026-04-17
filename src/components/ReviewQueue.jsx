@@ -193,7 +193,7 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
       {showEmail && (
         <EmailPreviewModal subject={item.emailSubject} from={item.emailFrom} html={item.emailHtml} onClose={() => setShowEmail(false)} />
       )}
-      <div className={`bg-white rounded-2xl border-2 shadow-lg overflow-hidden relative select-none min-h-[380px] sm:min-h-0 ${needsReview ? 'border-amber-200' : 'border-slate-100'}`}>
+      <div className={`bg-white rounded-2xl border-2 shadow-lg overflow-hidden relative select-none min-h-[460px] sm:min-h-0 ${needsReview ? 'border-amber-200' : 'border-slate-100'}`}>
         {/* Confirm overlay */}
         <div className="absolute inset-0 bg-green-500/20 rounded-2xl flex items-center justify-start pl-5 pointer-events-none z-10" style={{ opacity: confirmOpacity }}>
           <span className="text-green-600 text-3xl font-black border-4 border-green-500 rounded-xl px-2.5 py-0.5" style={{ transform: 'rotate(-15deg)' }}>✓</span>
@@ -388,9 +388,9 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
       ))}
 
       {queue.length > 0 ? (
-        <div className="relative">
-          {/* Next card behind — same min-height as current so it never overflows */}
-          {nextItem && (
+        <div className="relative overflow-hidden">
+          {/* Next card behind — hidden during exit animation to prevent flash */}
+          {nextItem && !exitDir && (
             <div
               className="absolute inset-x-0 top-2 pointer-events-none"
               style={{ transform: 'scale(0.96)', transformOrigin: 'top center', zIndex: 1 }}
