@@ -258,7 +258,7 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
                 </button>
               </div>
             ) : (
-              <div className="space-y-2 bg-slate-50 rounded-xl p-3" onPointerDown={e => e.stopPropagation()}>
+              <div className="space-y-2 bg-slate-50 rounded-xl p-3">
                 <FlightFields
                   distanceMiles={distanceMiles} onDistanceChange={setDistanceMiles}
                   bookingType={bookingType} onBookingTypeChange={setBookingType}
