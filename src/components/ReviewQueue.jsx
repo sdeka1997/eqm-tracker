@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { calculateFlightPoints, FARE_OPTIONS, BOOKING_TYPE_SHORT } from '../utils/calculations'
 import FlightFields from './FlightFields'
 import Modal from './Modal'
