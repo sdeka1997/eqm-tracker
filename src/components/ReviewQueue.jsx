@@ -162,7 +162,7 @@ function CardSpendReviewCard({ item, onConfirm, onSkip }) {
 
 // ── Mobile swipe card ────────────────────────────────────────────────────────
 
-function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity, onConfirm, onDismiss, onEditingChange }) {
+function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity, onConfirm, onDismiss, onEditingChange, onCanConfirmChange }) {
   const isFlight = item.type === 'flight' || !item.type
   const [editing, setEditing] = useState(!item.bookingType || item.fareSource === 'estimated' || item.fareSource === 'default')
   const [showEmail, setShowEmail] = useState(false)
@@ -178,6 +178,8 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
     ? calculateFlightPoints({ earningMethod, distanceMiles, bookingType, fareOption })
     : (item.statusPoints || 0)
 
+  const canConfirm = !isFlight || (!!bookingType && (earningMethod !== 'distance' || distanceMiles > 0))
+
   useEffect(() => {
     setEditing(!item.bookingType || item.fareSource === 'estimated' || item.fareSource === 'default')
     setBookingType(item.bookingType || '')
@@ -188,6 +190,7 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
   }, [item.id])
 
   useEffect(() => { onEditingChange?.(editing) }, [editing])
+  useEffect(() => { onCanConfirmChange?.(canConfirm) }, [canConfirm])
 
   function handleConfirmTap() {
     if (isFlight) {
@@ -203,8 +206,8 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
         <EmailPreviewModal subject={item.emailSubject} from={item.emailFrom} html={item.emailHtml} onClose={() => setShowEmail(false)} />
       )}
       <div className={`bg-white rounded-2xl border-2 shadow-lg overflow-hidden relative select-none ${needsReview ? 'border-amber-200' : 'border-slate-100'}`}>
-        {/* Confirm overlay */}
-        <div className="absolute inset-0 bg-green-500/20 rounded-2xl flex items-center justify-start pl-5 pointer-events-none z-10" style={{ opacity: confirmOpacity }}>
+        {/* Confirm overlay — hidden when required fields are missing */}
+        <div className="absolute inset-0 bg-green-500/20 rounded-2xl flex items-center justify-start pl-5 pointer-events-none z-10" style={{ opacity: canConfirm ? confirmOpacity : 0 }}>
           <span className="text-green-600 text-3xl font-black border-4 border-green-500 rounded-xl px-2.5 py-0.5" style={{ transform: 'rotate(-15deg)' }}>✓</span>
         </div>
         {/* Dismiss overlay */}
@@ -294,7 +297,7 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
           <div className="w-px bg-slate-100" />
           <button
             onClick={e => { e.stopPropagation(); handleConfirmTap() }}
-            disabled={isFlight && !bookingType}
+            disabled={!canConfirm}
             className="flex-1 py-3 text-sm text-alaska-blue hover:bg-alaska-blue hover:text-white rounded-br-2xl transition-colors font-semibold disabled:opacity-40"
           >
             Confirm →
@@ -343,6 +346,7 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
   const [entering, setEntering] = useState(false)
   const isDraggingRef = useRef(false)
   const startXRef = useRef(0)
+  const canConfirmRef = useRef(true)
 
   const THRESHOLD = 80
 
@@ -386,7 +390,7 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
     if (!isDraggingRef.current) return
     isDraggingRef.current = false
     setIsDragging(false)
-    if (offsetX >= THRESHOLD) doConfirm()
+    if (offsetX >= THRESHOLD && canConfirmRef.current) doConfirm()
     else if (offsetX <= -THRESHOLD) doDismiss()
     else setOffsetX(0)
   }
@@ -466,6 +470,7 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
               dismissOpacity={dismissOpacity}
               onConfirm={(updatedData) => doConfirm(currentItem, updatedData)}
               onDismiss={() => doDismiss(currentItem)}
+              onCanConfirmChange={(v) => { canConfirmRef.current = v }}
             />
           </div>
         </div>
