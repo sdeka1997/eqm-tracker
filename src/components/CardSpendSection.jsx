@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { formatMonth, groupByMonth, calculateCardSpendPoints } from '../utils/calculations'
+import Modal from './Modal'
 
 function EditDateModal({ activity, onSave, onClose }) {
   const [date, setDate] = useState(activity.date || '')
@@ -11,8 +12,7 @@ function EditDateModal({ activity, onSave, onClose }) {
   }, [onClose])
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+    <Modal onClose={onClose} maxWidth="max-w-sm">
         <div className="p-5 border-b border-slate-100">
           <h3 className="font-semibold text-slate-800">Edit Posting Date</h3>
           <p className="text-xs text-slate-400 mt-0.5 truncate">{activity.notes || 'Card Spend'}</p>
@@ -51,8 +51,7 @@ function EditDateModal({ activity, onSave, onClose }) {
             Save
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 

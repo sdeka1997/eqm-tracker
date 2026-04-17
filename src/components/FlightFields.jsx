@@ -1,13 +1,8 @@
 import { BOOKING_TYPES, FARE_OPTIONS } from '../utils/calculations'
+import { INPUT_CLS, INPUT_CLS_SM, LABEL_CLS } from '../utils/styles'
 
-const sizeClass = {
-  sm: 'text-xs rounded-lg border border-slate-200 px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-alaska-blue bg-white',
-  md: 'text-sm rounded-lg border border-slate-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-alaska-blue bg-white',
-}
-const labelClass = {
-  sm: 'block text-xs font-medium text-slate-500 mb-1',
-  md: 'block text-xs font-medium text-slate-500 mb-1',
-}
+const sizeClass = { sm: INPUT_CLS_SM, md: INPUT_CLS }
+const labelClass = { sm: LABEL_CLS, md: LABEL_CLS }
 
 export default function FlightFields({
   distanceMiles, onDistanceChange,

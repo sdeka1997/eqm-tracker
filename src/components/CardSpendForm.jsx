@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { calculateCardPoints } from '../utils/calculations'
+import { INPUT_CLS, LABEL_CLS } from '../utils/styles'
 
 export default function CardSpendForm({ onSubmit, onCancel, onDone }) {
   const [amount, setAmount] = useState('')
@@ -10,8 +11,8 @@ export default function CardSpendForm({ onSubmit, onCancel, onDone }) {
   const spendPoints = calculateCardPoints(parseFloat(amount) || 0)
   const totalPoints = spendPoints + (isAnniversary ? 10000 : 0)
 
-  const inputCls = 'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-alaska-blue focus:border-transparent'
-  const labelCls = 'block text-xs font-medium text-slate-600 mb-1'
+  const inputCls = INPUT_CLS
+  const labelCls = LABEL_CLS
 
   function handleSubmit(e) {
     e.preventDefault()

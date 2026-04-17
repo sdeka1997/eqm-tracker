@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { calculateFlightPoints, FARE_OPTIONS, BOOKING_TYPE_SHORT } from '../utils/calculations'
 import FlightFields from './FlightFields'
+import Modal from './Modal'
 
 function EmailPreviewModal({ subject, from, html, onClose }) {
   useEffect(() => {
@@ -10,8 +11,7 @@ function EmailPreviewModal({ subject, from, html, onClose }) {
   }, [onClose])
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+    <Modal onClose={onClose} maxWidth="max-w-2xl" className="max-h-[85vh] flex flex-col">
         <div className="p-4 border-b border-slate-100 flex items-start justify-between gap-3 shrink-0">
           <div className="min-w-0">
             <p className="font-semibold text-slate-800 truncate">{subject || '(no subject)'}</p>
@@ -25,8 +25,7 @@ function EmailPreviewModal({ subject, from, html, onClose }) {
           className="flex-1 w-full rounded-b-2xl"
           title="Email preview"
         />
-      </div>
-    </div>
+    </Modal>
   )
 }
 

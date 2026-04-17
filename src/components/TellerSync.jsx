@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import Spinner from './Spinner'
 import { useTellerConnect } from 'teller-connect-react'
 import { httpsCallable } from 'firebase/functions'
 import { doc, onSnapshot } from 'firebase/firestore'
@@ -174,7 +175,7 @@ export default function TellerSync({ uid, existingTellerIds, onAddActivity, onCa
   if (connected === null || saving) {
     return (
       <div className="flex justify-center py-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-4 border-alaska-blue border-t-transparent" />
+        <Spinner />
       </div>
     )
   }
@@ -275,7 +276,7 @@ export default function TellerSync({ uid, existingTellerIds, onAddActivity, onCa
 
           {!accounts && selectedAccountIds.length === 0 && !status?.error && (
             <div className="flex justify-center py-2">
-              <div className="animate-spin rounded-full h-6 w-6 border-4 border-alaska-blue border-t-transparent" />
+              <Spinner size="md" />
             </div>
           )}
           {!accounts && selectedAccountIds.length === 0 && status?.error && (
@@ -294,7 +295,7 @@ export default function TellerSync({ uid, existingTellerIds, onAddActivity, onCa
               className="w-full bg-alaska-blue hover:bg-alaska-navy disabled:opacity-40 text-white py-3 rounded-xl font-semibold text-sm transition-colors flex items-center justify-center gap-2"
             >
               {syncing
-                ? <><div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" /> Syncing…</>
+                ? <><Spinner size="sm" color="white" /> Syncing…</>
                 : '💳 Sync Transactions'}
             </button>
           )}

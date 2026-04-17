@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { syncFlightsFromGmail } from '../utils/gmailSync'
+import Spinner from './Spinner'
 
 const GEMINI_KEY_STORAGE = 'gemini_api_key'
 
@@ -208,7 +209,7 @@ export default function GmailSync({ accessToken, earningMethod, onAddPending, on
   if (state === 'loading') {
     return (
       <div className="text-center py-8 space-y-3">
-        <div className="animate-spin rounded-full h-8 w-8 border-4 border-alaska-teal border-t-transparent mx-auto" />
+        <Spinner color="teal" className="mx-auto" />
         <p className="text-sm font-medium text-slate-700">{progress.step}</p>
         {progress.total > 0 && (
           <div className="max-w-xs mx-auto">

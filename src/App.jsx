@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { onAuthStateChanged, signInWithPopup, signOut, GoogleAuthProvider } from 'firebase/auth'
 import { auth, googleProvider } from './firebase'
 import Dashboard from './components/Dashboard'
+import Spinner from './components/Spinner'
 
 export default function App() {
   const [user, setUser] = useState(undefined)
@@ -42,7 +43,7 @@ export default function App() {
   if (user === undefined) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100">
-        <div className="animate-spin rounded-full h-10 w-10 border-4 border-alaska-blue border-t-transparent" />
+        <Spinner size="xl" />
       </div>
     )
   }

@@ -15,6 +15,7 @@ import MiscSection from './MiscSection'
 import ReviewQueue from './ReviewQueue'
 import { usePending } from '../hooks/usePending'
 import { getCurrentTier, getNextTier, EARNING_METHODS, CURRENT_YEAR, calculateCardSpendPoints } from '../utils/calculations'
+import Spinner from './Spinner'
 
 const EARNING_METHOD_KEY = 'atmos_earning_method'
 
@@ -319,7 +320,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
               </div>
               {loading ? (
                 <div className="flex justify-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-4 border-alaska-blue border-t-transparent" />
+                  <Spinner />
                 </div>
               ) : error ? (
                 <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 space-y-1">

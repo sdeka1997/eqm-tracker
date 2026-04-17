@@ -1,7 +1,8 @@
+import Modal from './Modal'
+
 export default function FlightSetupModal({ onSelect, onClose }) {
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+    <Modal onClose={onClose}>
         <div className="p-5 border-b border-slate-100 flex items-center justify-between">
           <div>
             <h2 className="font-semibold text-slate-800">Add your flights</h2>
@@ -52,7 +53,6 @@ export default function FlightSetupModal({ onSelect, onClose }) {
             </div>
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }

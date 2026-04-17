@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { parseFlightyCSV } from '../utils/flightyImport'
+import Spinner from './Spinner'
 
 export default function FlightyImport({ earningMethod, onAddPending, onCancel }) {
   const [state, setState] = useState('idle') // idle | preview | importing | done
@@ -172,7 +173,7 @@ export default function FlightyImport({ earningMethod, onAddPending, onCancel })
   if (state === 'importing') {
     return (
       <div className="text-center py-8 space-y-3">
-        <div className="animate-spin rounded-full h-8 w-8 border-4 border-alaska-teal border-t-transparent mx-auto" />
+        <Spinner color="teal" className="mx-auto" />
         <p className="text-sm font-medium text-slate-700">Adding to review queue…</p>
         <p className="text-xs text-slate-400">{imported} / {selected.size}</p>
       </div>
