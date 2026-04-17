@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { syncFlightsFromGmail } from '../utils/gmailSync'
 
 const GEMINI_KEY_STORAGE = 'gemini_api_key'
@@ -23,6 +23,14 @@ export default function GmailSync({ accessToken, earningMethod, onAddPending, on
   const [currentToken, setCurrentToken] = useState(accessToken)
   const [geminiKey, setGeminiKey] = useState(() => localStorage.getItem(GEMINI_KEY_STORAGE) || '')
   const [geminiKeyInput, setGeminiKeyInput] = useState('')
+
+  const defaultSinceDate = lastPoll
+    ? new Date(new Date(lastPoll).getTime() - 86400000).toISOString().slice(0, 10)
+    : new Date(Date.now() - 21 * 86400000).toISOString().slice(0, 10)
+  const [sinceOverride, setSinceOverride] = useState(null)
+  const [editingSince, setEditingSince] = useState(false)
+  const sinceInputRef = useRef(null)
+  const sinceDate = sinceOverride ?? defaultSinceDate
 
   const [testResult, setTestResult] = useState('')
 
@@ -63,10 +71,9 @@ export default function GmailSync({ accessToken, earningMethod, onAddPending, on
     setTokenExpired(false)
 
     try {
-      // sinceDate: last poll date minus 1 day buffer, or null for first time (7 days handled in gmailSync.js)
-      const sinceDate = lastPoll
+      const sinceDate = sinceOverride ?? (lastPoll
         ? new Date(new Date(lastPoll).getTime() - 86400000).toISOString().slice(0, 10)
-        : null
+        : null)
 
       const flights = await syncFlightsFromGmail(token, geminiKey, {
         earningMethod,
@@ -151,11 +158,28 @@ export default function GmailSync({ accessToken, earningMethod, onAddPending, on
             <div className="bg-slate-50 rounded-xl p-4 text-sm text-slate-600 space-y-1.5">
               <p className="font-semibold text-slate-800">What this does</p>
               <p>Searches Gmail for new flight emails since your last poll, extracts flight details using Gemini AI, and adds them to your review queue.</p>
-              {lastPoll ? (
-                <p className="text-xs text-slate-400">Last polled {timeAgo(lastPoll)} · searching from {new Date(new Date(lastPoll).getTime() - 86400000).toISOString().slice(0, 10)}</p>
-              ) : (
-                <p className="text-xs text-slate-400">First poll — will search the last 21 days</p>
-              )}
+              <p className="text-xs text-slate-400">
+                {lastPoll ? `Last polled ${timeAgo(lastPoll)}` : 'First poll'} · Searching from{' '}
+                {editingSince ? (
+                  <input
+                    ref={sinceInputRef}
+                    type="date"
+                    defaultValue={sinceDate}
+                    onBlur={e => { setSinceOverride(e.target.value || null); setEditingSince(false) }}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') e.target.blur() }}
+                    className="border-b border-alaska-blue bg-transparent outline-none text-xs text-slate-600 w-30"
+                    autoFocus
+                  />
+                ) : (
+                  <span
+                    onClick={() => setEditingSince(true)}
+                    className="underline decoration-dashed cursor-pointer hover:text-alaska-blue"
+                    title="Click to change start date"
+                  >
+                    {sinceDate}
+                  </span>
+                )}
+              </p>
             </div>
             <div className="flex items-center justify-between text-xs text-slate-400">
               <span>Gemini key saved</span>
