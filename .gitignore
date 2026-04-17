@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+functions/node_modules/
+
+# Build output
+dist/
+
+# Environment variables
+.env.local
+.env*.local
+
+# Teller certificates — never commit these
+teller/
+
+# Firebase
+.firebase/
