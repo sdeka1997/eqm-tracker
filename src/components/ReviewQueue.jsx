@@ -382,11 +382,11 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
   function doConfirm(item = currentItem, updatedData = {}) {
     if (!item) return
     setExitDir('right')
-    onConfirm({ ...item, ...updatedData })
     setTimeout(() => {
       setConfirmedIds(s => new Set([...s, item.id]))
       setExitDir(null)
       setOffsetX(0)
+      onConfirm({ ...item, ...updatedData })
     }, 280)
   }
 
