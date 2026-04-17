@@ -1,8 +1,8 @@
-import { useState, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { doc, getDoc, setDoc } from 'firebase/firestore'
+import { db } from '../firebase'
 import { syncFlightsFromGmail } from '../utils/gmailSync'
 import Spinner from './Spinner'
-
-const GEMINI_KEY_STORAGE = 'gemini_api_key'
 
 function timeAgo(isoString) {
   if (!isoString) return null
@@ -15,15 +15,21 @@ function timeAgo(isoString) {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
-export default function GmailSync({ accessToken, earningMethod, onAddPending, onCancel, onRefreshToken, userName, lastPoll, onPollComplete }) {
+export default function GmailSync({ uid, accessToken, earningMethod, onAddPending, onCancel, onRefreshToken, userName, lastPoll, onPollComplete }) {
   const [state, setState] = useState('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const [tokenExpired, setTokenExpired] = useState(false)
   const [progress, setProgress] = useState({ step: '', current: 0, total: 0 })
   const [summary, setSummary] = useState({ added: 0, cancelled: 0 })
   const [currentToken, setCurrentToken] = useState(accessToken)
-  const [geminiKey, setGeminiKey] = useState(() => localStorage.getItem(GEMINI_KEY_STORAGE) || '')
+  const [geminiKey, setGeminiKey] = useState('')
   const [geminiKeyInput, setGeminiKeyInput] = useState('')
+
+  useEffect(() => {
+    getDoc(doc(db, 'users', uid)).then(snap => {
+      if (snap.exists() && snap.data().geminiKey) setGeminiKey(snap.data().geminiKey)
+    })
+  }, [uid])
 
   const defaultSinceDate = lastPoll
     ? new Date(new Date(lastPoll).getTime() - 86400000).toISOString().slice(0, 10)
@@ -35,10 +41,10 @@ export default function GmailSync({ accessToken, earningMethod, onAddPending, on
 
   const [testResult, setTestResult] = useState('')
 
-  function saveGeminiKey() {
+  async function saveGeminiKey() {
     const key = geminiKeyInput.trim()
     if (!key) return
-    localStorage.setItem(GEMINI_KEY_STORAGE, key)
+    await setDoc(doc(db, 'users', uid), { geminiKey: key }, { merge: true })
     setGeminiKey(key)
     setGeminiKeyInput('')
     setTestResult('')
@@ -182,7 +188,7 @@ export default function GmailSync({ accessToken, earningMethod, onAddPending, on
               <span>Gemini key saved</span>
               <div className="flex gap-3">
                 <button onClick={testGeminiKey} className="hover:text-alaska-blue">Test key</button>
-                <button onClick={() => { localStorage.removeItem(GEMINI_KEY_STORAGE); setGeminiKey(''); setTestResult('') }} className="hover:text-red-400">Remove</button>
+                <button onClick={async () => { await setDoc(doc(db, 'users', uid), { geminiKey: null }, { merge: true }); setGeminiKey(''); setTestResult('') }} className="hover:text-red-400">Remove</button>
               </div>
             </div>
             {testResult && (

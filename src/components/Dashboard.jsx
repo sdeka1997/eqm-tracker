@@ -464,6 +464,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
               )}
               {modal === 'calendar' && (
                 <GmailSync
+                  uid={user.uid}
                   accessToken={calendarToken}
                   earningMethod={earningMethod}
                   onAddPending={async (data) => {
