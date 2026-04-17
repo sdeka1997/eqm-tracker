@@ -22,7 +22,7 @@ const EARNING_METHOD_KEY = 'atmos_earning_method'
 export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGmailToken }) {
   const [year, setYear] = useState(CURRENT_YEAR)
   const [modal, setModal] = useState(null) // null | 'flight' | 'card' | 'calendar' | 'teller' | 'flighty'
-  const [confirmDeleteAll, setConfirmDeleteAll] = useState(null) // null | 'flights' | 'card'
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(null) // null | 'flights' | 'card' | 'misc'
   const [showProfileMenu, setShowProfileMenu] = useState(false)
   const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false)
   const [deletingAccount, setDeletingAccount] = useState(false)
@@ -249,21 +249,28 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                 const miscPlanned = activities.filter(a => a.type === 'misc' && (a.date || '') > today).reduce((s, a) => s + (a.statusPoints || 0), 0)
 
                 const rows = [
-                  { label: 'Flights', earned: flightEarned, planned: flightPlanned },
-                  { label: 'Card Spend', earned: cardEarned, planned: cardPlanned },
-                  { label: 'Miscellaneous', earned: miscEarned, planned: miscPlanned },
+                  { label: 'Flights', earned: flightEarned, planned: flightPlanned, deleteKey: 'flights' },
+                  { label: 'Card Spend', earned: cardEarned, planned: cardPlanned, deleteKey: 'card' },
+                  { label: 'Miscellaneous', earned: miscEarned, planned: miscPlanned, deleteKey: 'misc' },
                 ].filter(r => r.earned > 0 || r.planned > 0)
 
                 if (rows.length === 0) return null
                 return (
                   <div className="border-t border-slate-100 pt-3 space-y-1.5">
                     {rows.map(r => (
-                      <div key={r.label} className="flex items-center justify-between text-xs">
+                      <div key={r.label} className="flex items-center justify-between text-xs group/row">
                         <span className="text-slate-400">{r.label}</span>
-                        <span className="text-slate-600">
-                          +{r.earned.toLocaleString()} SP
-                          {r.planned > 0 && <span className="text-slate-400 ml-1">· +{r.planned.toLocaleString()} planned</span>}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-slate-600">
+                            +{r.earned.toLocaleString()} SP
+                            {r.planned > 0 && <span className="text-slate-400 ml-1">· +{r.planned.toLocaleString()} planned</span>}
+                          </span>
+                          <button
+                            onClick={() => setConfirmDeleteAll(r.deleteKey)}
+                            className="opacity-0 group-hover/row:opacity-100 transition-opacity text-slate-300 hover:text-red-400 text-base leading-none"
+                            title={`Delete all ${r.label.toLowerCase()}`}
+                          >×</button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -496,10 +503,10 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <div className="p-5">
               <h3 className="font-semibold text-slate-800 mb-1">
-                Delete all {confirmDeleteAll === 'flights' ? 'flights' : 'card transactions'}?
+                Delete all {confirmDeleteAll === 'flights' ? 'flights' : confirmDeleteAll === 'card' ? 'card transactions' : 'miscellaneous entries'}?
               </h3>
               <p className="text-sm text-slate-500">
-                This will permanently remove all {confirmDeleteAll === 'flights' ? 'flight entries' : 'card spend entries'} for {year}. This cannot be undone.
+                This will permanently remove all {confirmDeleteAll === 'flights' ? 'flight entries' : confirmDeleteAll === 'card' ? 'card spend entries' : 'miscellaneous entries'} for {year}. This cannot be undone.
               </p>
             </div>
             <div className="flex border-t border-slate-100">
@@ -515,7 +522,9 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                   const toDelete = activities.filter(a =>
                     confirmDeleteAll === 'flights'
                       ? (a.type === 'flight' || !a.type)
-                      : (a.type === 'card_spend' || a.type === 'anniversary_bonus')
+                      : confirmDeleteAll === 'card'
+                        ? (a.type === 'card_spend' || a.type === 'anniversary_bonus')
+                        : a.type === 'misc'
                   )
                   for (const a of toDelete) await removeActivity(a.id)
                   setConfirmDeleteAll(null)

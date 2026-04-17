@@ -1,15 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { formatMonth, groupByMonth, calculateCardSpendPoints } from '../utils/calculations'
 import Modal from './Modal'
+import { useEscapeClose } from '../hooks/useEscapeClose'
 
 function EditDateModal({ activity, onSave, onClose }) {
   const [date, setDate] = useState(activity.date || '')
-
-  useEffect(() => {
-    const handler = (e) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [onClose])
+  useEscapeClose(onClose)
 
   return (
     <Modal onClose={onClose} maxWidth="max-w-sm">

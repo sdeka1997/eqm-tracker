@@ -72,10 +72,6 @@ export default function GmailSync({ accessToken, earningMethod, onAddPending, on
     setTokenExpired(false)
 
     try {
-      const sinceDate = sinceOverride ?? (lastPoll
-        ? new Date(new Date(lastPoll).getTime() - 86400000).toISOString().slice(0, 10)
-        : null)
-
       const flights = await syncFlightsFromGmail(token, geminiKey, {
         earningMethod,
         onProgress: p => setProgress(p),

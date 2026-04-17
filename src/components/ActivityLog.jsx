@@ -80,7 +80,6 @@ function FlightEditModal({ flight, earningMethod, onSave, onClose }) {
             Save
           </button>
         </div>
-      </div>
     </Modal>
   )
 }

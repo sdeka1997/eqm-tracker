@@ -1,14 +1,11 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef } from 'react'
 import { calculateFlightPoints, FARE_OPTIONS, BOOKING_TYPE_SHORT } from '../utils/calculations'
 import FlightFields from './FlightFields'
 import Modal from './Modal'
+import { useEscapeClose } from '../hooks/useEscapeClose'
 
 function EmailPreviewModal({ subject, from, html, onClose }) {
-  useEffect(() => {
-    const handler = (e) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [onClose])
+  useEscapeClose(onClose)
 
   return (
     <Modal onClose={onClose} maxWidth="max-w-2xl" className="max-h-[85vh] flex flex-col">
@@ -29,7 +26,7 @@ function EmailPreviewModal({ subject, from, html, onClose }) {
   )
 }
 
-function FlightReviewCard({ flight, earningMethod, onConfirm, onSkip, onUpdate }) {
+function FlightReviewCard({ flight, earningMethod, onConfirm, onSkip }) {
   const needsSelection = !flight.bookingType
   const [editing, setEditing] = useState(needsSelection || flight.fareSource === 'estimated' || flight.fareSource === 'default')
   const [showEmail, setShowEmail] = useState(false)
@@ -545,7 +542,6 @@ export default function ReviewQueue({ uid, pending, earningMethod, onConfirm, on
               earningMethod={earningMethod}
               onConfirm={confirmed => onConfirm(confirmed)}
               onSkip={() => onSkip(item.id)}
-              onUpdate={() => {}}
             />
           )
         ))}
