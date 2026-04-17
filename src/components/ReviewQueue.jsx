@@ -296,25 +296,6 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
   )
 }
 
-function CardPeek({ item }) {
-  const isFlight = item.type === 'flight' || !item.type
-  return (
-    <div className="bg-white rounded-2xl border-2 border-slate-100 px-4 py-4 opacity-70">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-base font-bold text-slate-800">
-            {isFlight ? `${item.origin} → ${item.destination}` : '💳 Card Spend'}
-          </div>
-          <div className="text-sm text-slate-500 mt-0.5">{item.date}</div>
-        </div>
-        <div className="text-right">
-          <div className="text-xl font-black text-alaska-blue">+{(item.statusPoints || 0).toLocaleString()}</div>
-          <div className="text-xs text-slate-400">SP</div>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
   const [dismissedIds, setDismissedIds] = useState(new Set())
@@ -408,13 +389,21 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
 
       {queue.length > 0 ? (
         <div className="relative">
-          {/* Next card peeking behind */}
+          {/* Next card behind — full card, display only */}
           {nextItem && (
             <div
               className="absolute inset-x-0 top-2 pointer-events-none"
               style={{ transform: 'scale(0.96)', transformOrigin: 'top center', zIndex: 1 }}
             >
-              <CardPeek item={nextItem} />
+              <SwipeCardContent
+                key={nextItem.id}
+                item={nextItem}
+                earningMethod={earningMethod}
+                confirmOpacity={0}
+                dismissOpacity={0}
+                onConfirm={() => {}}
+                onDismiss={() => {}}
+              />
             </div>
           )}
 
@@ -428,6 +417,7 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
             onPointerCancel={handlePointerUp}
           >
             <SwipeCardContent
+              key={currentItem.id}
               item={currentItem}
               earningMethod={earningMethod}
               confirmOpacity={confirmOpacity}

@@ -27,11 +27,20 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
   const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false)
   const [deletingAccount, setDeletingAccount] = useState(false)
   const profileMenuRef = useRef(null)
+  const reviewQueueRef = useRef(null)
   const [earningMethod, setEarningMethod] = useState(
     () => localStorage.getItem(EARNING_METHOD_KEY) || 'distance'
   )
   const { activities, loading, error, earnedPoints, plannedPoints, totalPoints, addActivity, removeActivity, updateActivity } = useActivities(user.uid, year)
   const { pending, addPending, dismissPending, clearAllPending } = usePending(user.uid)
+
+  const prevPendingLengthRef = useRef(pending.length)
+  useEffect(() => {
+    if (prevPendingLengthRef.current === 0 && pending.length > 0) {
+      reviewQueueRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+    prevPendingLengthRef.current = pending.length
+  }, [pending.length])
 
   const [lastPoll, setLastPoll] = useState(null)
   useEffect(() => {
@@ -281,7 +290,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
 
             {/* Review queue — mobile only (desktop renders in right column) */}
             {pending.length > 0 && (
-              <div className="lg:hidden">
+              <div className="lg:hidden" ref={reviewQueueRef}>
                 <ReviewQueue
                   pending={pending}
                   earningMethod={earningMethod}
