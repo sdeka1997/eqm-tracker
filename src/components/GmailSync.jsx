@@ -24,10 +24,12 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
   const [currentToken, setCurrentToken] = useState(accessToken)
   const [geminiKey, setGeminiKey] = useState('')
   const [geminiKeyInput, setGeminiKeyInput] = useState('')
+  const [keyLoading, setKeyLoading] = useState(true)
 
   useEffect(() => {
     getDoc(doc(db, 'users', uid)).then(snap => {
       if (snap.exists() && snap.data().geminiKey) setGeminiKey(snap.data().geminiKey)
+      setKeyLoading(false)
     })
   }, [uid])
 
@@ -124,6 +126,7 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
   }
 
   if (state === 'idle') {
+    if (keyLoading) return <div className="py-8 flex justify-center"><Spinner /></div>
     return (
       <div className="space-y-4">
         {!geminiKey ? (
@@ -139,7 +142,6 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
               onKeyDown={e => e.key === 'Enter' && saveGeminiKey()}
               placeholder="AIza..."
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-alaska-blue font-mono"
-              autoFocus
             />
             <div className="flex gap-2">
               <button onClick={onCancel} className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50">
