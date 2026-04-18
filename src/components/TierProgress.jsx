@@ -9,6 +9,19 @@ const TIER_ZONE_COLORS = [
   { bg: 'bg-purple-100',  solid: 'bg-purple-400',  label: 'text-purple-600' },  // Titanium
 ]
 
+function hexToRgba(hex, alpha) {
+  const [r, g, b] = hex.match(/\w\w/g).map(x => parseInt(x, 16))
+  return `rgba(${r},${g},${b},${alpha})`
+}
+
+const TIER_BAR_COLORS = {
+  null:     { solid: '#166534', stripeB: 'rgba(134,239,172,0.5)' },
+  Silver:   { solid: '#64748b', stripeB: 'rgba(226,232,240,0.6)' },
+  Gold:     { solid: '#a16207', stripeB: 'rgba(253,230,138,0.5)' },
+  Platinum: { solid: '#1e40af', stripeB: 'rgba(147,197,253,0.5)' },
+  Titanium: { solid: '#6b21a8', stripeB: 'rgba(216,180,254,0.5)' },
+}
+
 function pct(points) {
   return Math.min(100, (points / MAX_POINTS) * 100)
 }
@@ -21,6 +34,7 @@ export default function TierProgress({ earnedPoints, plannedPoints }) {
   const totalPoints = earnedPoints + plannedPoints
   const currentTier = getCurrentTier(earnedPoints)
   const nextTier = getNextTier(earnedPoints)
+  const barColors = TIER_BAR_COLORS[currentTier?.name ?? null]
 
   // Zone boundaries: [start, end]
   const zones = [
@@ -62,7 +76,8 @@ export default function TierProgress({ earnedPoints, plannedPoints }) {
             className="absolute left-0 top-0 h-full rounded-full"
             style={{
               width: `${pct(totalPoints)}%`,
-              background: 'repeating-linear-gradient(45deg, rgba(22,101,52,0.8) 0px, rgba(22,101,52,0.8) 4px, rgba(134,239,172,0.5) 4px, rgba(134,239,172,0.5) 8px)',
+              background: `repeating-linear-gradient(45deg, ${hexToRgba(barColors.solid, 0.8)} 0px, ${hexToRgba(barColors.solid, 0.8)} 4px, ${barColors.stripeB} 4px, ${barColors.stripeB} 8px)`,
+              boxShadow: `inset 0 0 0 1.5px ${hexToRgba(barColors.solid, 0.7)}`,
             }}
           />
         )}
@@ -70,7 +85,7 @@ export default function TierProgress({ earnedPoints, plannedPoints }) {
         {/* Earned fill */}
         <div
           className="absolute left-0 top-0 h-full rounded-full transition-all duration-500"
-          style={{ width: `${pct(earnedPoints)}%`, background: '#166534' }}
+          style={{ width: `${pct(earnedPoints)}%`, background: barColors.solid }}
         />
 
         {/* Tier dividers */}
