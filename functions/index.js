@@ -60,8 +60,6 @@ exports.getTellerTransactions = onCall({ secrets: [TELLER_CERT, TELLER_KEY] }, a
       auth: { username: teller.accessToken, password: '' },
     })
     for (const tx of txRes.data) {
-      // Only sync 2026 and later — 2025 is read-only (spreadsheet import)
-      if (parseInt(tx.date.slice(0, 4)) < 2026) continue
       allTransactions.push({
         id: tx.id,
         date: tx.date,

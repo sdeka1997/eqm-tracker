@@ -36,9 +36,11 @@ export default function FlightyImport({ earningMethod, onAddPending, onCancel })
     const toImport = flights.filter((_, i) => selected.has(i))
     setImported(0)
     setState('importing')
-    for (let i = 0; i < toImport.length; i++) {
-      await onAddPending(toImport[i])
-      setImported(i + 1)
+    let count = 0
+    for (const flight of toImport) {
+      const added = await onAddPending(flight)
+      if (added) count++
+      setImported(count)
     }
     setState('done')
   }

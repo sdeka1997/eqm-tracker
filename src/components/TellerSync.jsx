@@ -12,7 +12,7 @@ const disconnectTeller       = httpsCallable(functions, 'disconnectTeller')
 
 const TELLER_APP_ID = 'app_pr4hc80mpvbhp573su000'
 
-export default function TellerSync({ uid, existingTellerIds, onAddActivity, onCancel }) {
+export default function TellerSync({ uid, year, existingTellerIds, onAddActivity, onCancel }) {
   const [connected, setConnected] = useState(null) // null = loading
   const [institution, setInstitution] = useState('')
   const [selectedAccountIds, setSelectedAccountIds] = useState([])
@@ -135,6 +135,7 @@ export default function TellerSync({ uid, existingTellerIds, onAddActivity, onCa
         if (existingTellerIds?.has(tx.id)) { skipped++; continue }
 
         const txYear = parseInt(tx.date.slice(0, 4))
+        if (txYear !== year) { skipped++; continue }
 
         await onAddActivity({
           type: 'card_spend',

@@ -35,7 +35,7 @@ export function usePending(uid) {
     if (data.flightyId) {
       const inPending = pending.some(p => p.flightyId === data.flightyId)
       const inConfirmed = existingFlightyIds?.has(data.flightyId)
-      if (inPending || inConfirmed) return
+      if (inPending || inConfirmed) return false
     }
     // Deduplicate Gmail imports by PNR (primary) then flightNumber+date (fallback)
     if (data.importedFrom === 'gmail_sync') {
@@ -43,25 +43,26 @@ export function usePending(uid) {
         const dedupeKey = `pnr:${data.confirmationNumber}`
         const inPending = pending.some(p => p.confirmationNumber === data.confirmationNumber)
         const inConfirmed = existingPNRs?.has(data.confirmationNumber)
-        if (inPending || inConfirmed || inflightKeys.current.has(dedupeKey)) return
+        if (inPending || inConfirmed || inflightKeys.current.has(dedupeKey)) return false
         inflightKeys.current.add(dedupeKey)
         await addDoc(collection(db, 'users', uid, 'pending'), { ...data, addedAt: serverTimestamp() })
-        return
+        return true
       } else if (data.flightNumber && data.date) {
         const dedupeKey = `fk:${data.flightNumber}|${data.date}`
         const key = `${data.flightNumber}|${data.date}`
         const inPending = pending.some(p => p.flightNumber && p.date && `${p.flightNumber}|${p.date}` === key)
         const inConfirmed = existingFlightKeys?.has(key)
-        if (inPending || inConfirmed || inflightKeys.current.has(dedupeKey)) return
+        if (inPending || inConfirmed || inflightKeys.current.has(dedupeKey)) return false
         inflightKeys.current.add(dedupeKey)
         await addDoc(collection(db, 'users', uid, 'pending'), { ...data, addedAt: serverTimestamp() })
-        return
+        return true
       }
     }
     await addDoc(collection(db, 'users', uid, 'pending'), {
       ...data,
       addedAt: serverTimestamp(),
     })
+    return true
   }
 
   async function updatePending(id, updates) {

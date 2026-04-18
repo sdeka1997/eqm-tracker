@@ -116,7 +116,7 @@ function FlightReviewCard({ flight, earningMethod, onConfirm, onSkip }) {
         )}
       </div>
       <div className="flex border-t border-slate-100">
-        <button onClick={onSkip} className="flex-1 py-3 text-sm text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-bl-2xl transition-colors font-medium">Skip</button>
+        <button onClick={onSkip} className="flex-1 py-3 text-sm text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-bl-2xl transition-colors font-medium">Discard</button>
         <div className="w-px bg-slate-100" />
         <button
           onClick={handleConfirm}
@@ -152,7 +152,7 @@ function CardSpendReviewCard({ item, onConfirm, onSkip }) {
         </div>
       </div>
       <div className="flex border-t border-slate-100">
-        <button onClick={onSkip} className="flex-1 py-3 text-sm text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-bl-2xl transition-colors font-medium">Skip</button>
+        <button onClick={onSkip} className="flex-1 py-3 text-sm text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-bl-2xl transition-colors font-medium">Discard</button>
         <div className="w-px bg-slate-100" />
         <button onClick={() => onConfirm(item)} className="flex-1 py-3 text-sm text-alaska-blue hover:bg-alaska-blue hover:text-white rounded-br-2xl transition-colors font-semibold">Confirm ✓</button>
       </div>
@@ -286,7 +286,7 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
             onClick={e => { e.stopPropagation(); onDismiss() }}
             className="flex-1 py-3 text-sm text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-bl-2xl transition-colors font-medium"
           >
-            ← Skip
+            ← Discard
           </button>
           <div className="w-px bg-slate-100" />
           <button
@@ -493,10 +493,10 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
       )}
 
       {queue.length > 1 && (
-        <p className="text-center text-xs text-slate-400 mt-1">{queue.length} remaining · swipe right to confirm, left to skip</p>
+        <p className="text-center text-xs text-slate-400 mt-1">{queue.length} remaining · swipe right to confirm, left to discard</p>
       )}
       {queue.length === 1 && (
-        <p className="text-center text-xs text-slate-400 mt-1">swipe right to confirm, left to skip</p>
+        <p className="text-center text-xs text-slate-400 mt-1">swipe right to confirm, left to discard</p>
       )}
     </div>
   )

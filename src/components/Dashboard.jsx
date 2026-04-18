@@ -85,6 +85,14 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
     }
   }
 
+  // Watch Teller connection state
+  const [tellerConnected, setTellerConnected] = useState(false)
+  useEffect(() => {
+    return onSnapshot(doc(db, 'users', user.uid), snap => {
+      setTellerConnected(!!snap.data()?.teller?.accessToken)
+    })
+  }, [user.uid])
+
   // Track all imported Teller IDs across all years for deduplication
   const [allTellerIds, setAllTellerIds] = useState(new Set())
   useEffect(() => {
@@ -315,7 +323,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                     <h2 className="font-semibold text-slate-800">Flights</h2>
                     <button onClick={() => setModal('flight')} className="text-xs text-alaska-blue hover:underline font-medium">+ Add</button>
                   </div>
-                  {year >= 2026 && activities.filter(a => a.type === 'flight' || !a.type).length > 0 && (
+                  {activities.filter(a => a.type === 'flight' || !a.type).length > 0 && (
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setModal('flighty')}
@@ -408,7 +416,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
             )}
 
             {/* Card spend */}
-            <CardSpendSection activities={activities} onDelete={removeActivity} onUpdate={updateActivity} onDeleteAll={() => setConfirmDeleteAll('card')} onAddManual={() => setModal('card')} onSync={year >= 2026 ? () => setModal('teller') : null} />
+            <CardSpendSection activities={activities} onDelete={removeActivity} onUpdate={updateActivity} onDeleteAll={() => setConfirmDeleteAll('card')} onAddManual={() => setModal('card')} onSync={() => setModal('teller')} tellerConnected={tellerConnected} />
             <MiscSection activities={activities} onAdd={addActivity} onDelete={removeActivity} />
 
 
@@ -457,6 +465,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
               {modal === 'teller' && (
                 <TellerSync
                   uid={user.uid}
+                  year={year}
                   existingTellerIds={allTellerIds}
                   onAddActivity={async data => addActivity(data)}
                   onCancel={() => setModal(null)}
