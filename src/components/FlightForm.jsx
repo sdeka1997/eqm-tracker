@@ -4,6 +4,7 @@ import {
   calculateFlightPoints,
   FARE_OPTIONS,
   EARNING_METHODS,
+  getToday,
 } from '../utils/calculations'
 import { INPUT_CLS, LABEL_CLS } from '../utils/styles'
 import FlightFields from './FlightFields'
@@ -12,7 +13,7 @@ import { parseConfirmation } from '../utils/parser'
 const defaultForm = {
   origin: '',
   destination: '',
-  date: new Date().toISOString().slice(0, 10),
+  date: getToday(),
   flightNumber: '',
   bookingType: 'alaska_direct',
   fareOption: 'economy_std',

@@ -1,10 +1,11 @@
 import { useState } from 'react'
+import { getToday } from '../utils/calculations'
 
 export default function MiscSection({ activities, onAdd, onDelete }) {
   const [showForm, setShowForm] = useState(false)
   const [description, setDescription] = useState('')
   const [points, setPoints] = useState('')
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  const [date, setDate] = useState(getToday())
 
   const miscItems = activities.filter(a => a.type === 'misc')
   const totalSP = miscItems.reduce((sum, a) => sum + (a.statusPoints || 0), 0)
@@ -19,7 +20,7 @@ export default function MiscSection({ activities, onAdd, onDelete }) {
     })
     setDescription('')
     setPoints('')
-    setDate(new Date().toISOString().slice(0, 10))
+    setDate(getToday())
     setShowForm(false)
   }
 

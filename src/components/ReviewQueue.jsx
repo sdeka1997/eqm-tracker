@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { calculateFlightPoints, FARE_OPTIONS, BOOKING_TYPE_SHORT } from '../utils/calculations'
+import { calculateFlightPoints, FARE_OPTIONS, BOOKING_TYPE_SHORT, isFlight } from '../utils/calculations'
 import FlightFields from './FlightFields'
 import Modal from './Modal'
 import { useEscapeClose } from '../hooks/useEscapeClose'
@@ -163,7 +163,7 @@ function CardSpendReviewCard({ item, onConfirm, onSkip }) {
 // ── Mobile swipe card ────────────────────────────────────────────────────────
 
 function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity, onConfirm, onDismiss, onCanConfirmChange, confirmBlocked }) {
-  const isFlight = item.type === 'flight' || !item.type
+  const isFlight = isFlight(item)
   const [showEmail, setShowEmail] = useState(false)
   const [bookingType, setBookingType] = useState(item.bookingType || '')
   const [fareOption, setFareOption] = useState(item.fareOption || '')
@@ -303,7 +303,7 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
 
 
 function CardPeek({ item }) {
-  const isFlight = item.type === 'flight' || !item.type
+  const isFlight = isFlight(item)
   const needsReview = isFlight && (!item.bookingType || item.fareSource === 'estimated' || item.fareSource === 'default' || !item.fareSource)
   return (
     <div className={`bg-white rounded-2xl border-2 px-4 py-4 shadow-lg ${needsReview ? 'border-amber-200' : 'border-slate-100'}`}>
@@ -413,7 +413,7 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
 
   function doDismiss(item = currentItem) {
     if (!item) return
-    const label = (item.type === 'flight' || !item.type) ? `${item.origin} → ${item.destination}` : 'Card spend'
+    const label = (isFlight(item)) ? `${item.origin} → ${item.destination}` : 'Card spend'
     const timeoutId = setTimeout(() => {
       onSkip(item.id)
       setUndoQueue(q => q.filter(u => u.id !== item.id))
@@ -507,7 +507,7 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
 export default function ReviewQueue({ uid, pending, earningMethod, onConfirm, onSkip }) {
   if (pending.length === 0) return null
 
-  const flights = pending.filter(p => p.type === 'flight' || !p.type)
+  const flights = pending.filter(p => isFlight(p))
   const cardSpend = pending.filter(p => p.type === 'card_spend')
 
   return (

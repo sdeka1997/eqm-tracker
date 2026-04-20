@@ -4,7 +4,7 @@ import {
   query, where, serverTimestamp,
 } from 'firebase/firestore'
 import { db } from '../firebase'
-import { calculateCardSpendPoints } from '../utils/calculations'
+import { calculateCardSpendPoints, isCardItem, getToday } from '../utils/calculations'
 
 export function useActivities(uid, year) {
   const [activities, setActivities] = useState([])
@@ -57,11 +57,11 @@ export function useActivities(uid, year) {
     await updateDoc(doc(db, 'users', uid, 'activities', id), data)
   }
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = getToday()
 
   function calcPoints(acts) {
     const nonCard = acts
-      .filter(a => a.type !== 'card_spend' && a.type !== 'anniversary_bonus')
+      .filter(a => !isCardItem(a))
       .reduce((sum, a) => sum + (a.statusPoints || 0), 0)
     return nonCard + calculateCardSpendPoints(acts)
   }

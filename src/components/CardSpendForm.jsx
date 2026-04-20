@@ -1,11 +1,11 @@
 import { useState } from 'react'
-import { calculateCardPoints } from '../utils/calculations'
+import { calculateCardPoints, getToday } from '../utils/calculations'
 import { INPUT_CLS, LABEL_CLS } from '../utils/styles'
 
 export default function CardSpendForm({ onSubmit, onCancel, onDone }) {
   const [amount, setAmount] = useState('')
   const [notes, setNotes] = useState('')
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  const [date, setDate] = useState(getToday())
   const [isAnniversary, setIsAnniversary] = useState(false)
 
   const spendPoints = calculateCardPoints(parseFloat(amount) || 0)

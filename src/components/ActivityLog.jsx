@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { calculateFlightPoints, FARE_OPTIONS, formatMonth, groupByMonth } from '../utils/calculations'
+import { calculateFlightPoints, FARE_OPTIONS, formatMonth, groupByMonth, isFlight } from '../utils/calculations'
 import FlightFields from './FlightFields'
 import Modal from './Modal'
 import { useEscapeClose } from '../hooks/useEscapeClose'
@@ -91,7 +91,7 @@ export default function ActivityLog({ activities, earningMethod, onDelete, onUpd
   const [expanded, setExpanded] = useState(() => new Set(['__default__']))
   const [editing, setEditing] = useState(null)
 
-  const flights = activities.filter(a => a.type === 'flight' || !a.type)
+  const flights = activities.filter(a => isFlight(a))
 
   if (flights.length === 0) {
     return (

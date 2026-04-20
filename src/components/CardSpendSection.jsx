@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { formatMonth, groupByMonth, calculateCardSpendPoints } from '../utils/calculations'
+import { formatMonth, groupByMonth, calculateCardSpendPoints, isCardItem } from '../utils/calculations'
 import Modal from './Modal'
 import { useEscapeClose } from '../hooks/useEscapeClose'
 
@@ -55,7 +55,7 @@ export default function CardSpendSection({ activities, onDelete, onUpdate, onDel
   const [expanded, setExpanded] = useState(null)
   const [editingActivity, setEditingActivity] = useState(null)
 
-  const cardItems = activities.filter(a => a.type === 'card_spend' || a.type === 'anniversary_bonus')
+  const cardItems = activities.filter(a => isCardItem(a))
 
   const byMonth = groupByMonth(cardItems)
   const months = Object.keys(byMonth).sort((a, b) => b.localeCompare(a))

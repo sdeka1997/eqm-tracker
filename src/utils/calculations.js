@@ -1,5 +1,9 @@
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
+export const isFlight = (a) => a.type === 'flight'
+export const isCardItem = (a) => a.type === 'card_spend' || a.type === 'anniversary_bonus'
+export const getToday = () => new Date().toISOString().slice(0, 10)
+
 export function formatMonth(yearMonth) {
   const [y, m] = yearMonth.split('-')
   return `${MONTH_NAMES[parseInt(m) - 1]} ${y}`

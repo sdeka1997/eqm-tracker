@@ -14,7 +14,7 @@ import CardSpendSection from './CardSpendSection'
 import MiscSection from './MiscSection'
 import ReviewQueue from './ReviewQueue'
 import { usePending } from '../hooks/usePending'
-import { getCurrentTier, getNextTier, EARNING_METHODS, CURRENT_YEAR, calculateCardSpendPoints } from '../utils/calculations'
+import { getCurrentTier, getNextTier, EARNING_METHODS, CURRENT_YEAR, calculateCardSpendPoints, isFlight, isCardItem, getToday } from '../utils/calculations'
 import Spinner from './Spinner'
 
 const EARNING_METHOD_KEY = 'atmos_earning_method'
@@ -158,6 +158,11 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
     localStorage.setItem(EARNING_METHOD_KEY, method)
   }
 
+  async function handleConfirmPending(confirmed) {
+    await addActivity({ ...confirmed, year: confirmed.year || year })
+    await dismissPending(confirmed.id)
+  }
+
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -254,10 +259,10 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
               </div>
               <TierProgress earnedPoints={earnedPoints} plannedPoints={plannedPoints} />
               {(() => {
-                const today = new Date().toISOString().slice(0, 10)
+                const today = getToday()
 
-                const flightEarned = activities.filter(a => (a.type === 'flight' || !a.type) && (a.date || '') <= today).reduce((s, a) => s + (a.statusPoints || 0), 0)
-                const flightPlanned = activities.filter(a => (a.type === 'flight' || !a.type) && (a.date || '') > today).reduce((s, a) => s + (a.statusPoints || 0), 0)
+                const flightEarned = activities.filter(a => isFlight(a) && (a.date || '') <= today).reduce((s, a) => s + (a.statusPoints || 0), 0)
+                const flightPlanned = activities.filter(a => isFlight(a) && (a.date || '') > today).reduce((s, a) => s + (a.statusPoints || 0), 0)
 
                 const cardEarned = calculateCardSpendPoints(activities.filter(a => (a.date || '') <= today))
                 const cardPlanned = calculateCardSpendPoints(activities.filter(a => (a.date || '') > today))
@@ -302,13 +307,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                 <ReviewQueue
                   pending={pending}
                   earningMethod={earningMethod}
-                  onConfirm={async (confirmed) => {
-                    if (confirmed.confirmationNumber && allActivitiesByPNR.has(confirmed.confirmationNumber)) {
-                      await removeActivity(allActivitiesByPNR.get(confirmed.confirmationNumber).id)
-                    }
-                    await addActivity({ ...confirmed, year: confirmed.year || year })
-                    await dismissPending(confirmed.id)
-                  }}
+                  onConfirm={handleConfirmPending}
                   onSkip={dismissPending}
                   onClearAll={clearAllPending}
                 />
@@ -323,7 +322,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                     <h2 className="font-semibold text-slate-800">Flights</h2>
                     <button onClick={() => setModal('flight')} className="text-xs text-alaska-blue hover:underline font-medium">+ Add</button>
                   </div>
-                  {activities.filter(a => a.type === 'flight' || !a.type).length > 0 && (
+                  {activities.filter(a => isFlight(a)).length > 0 && (
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setModal('flighty')}
@@ -341,14 +340,14 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                   )}
                 </div>
                 <div className="flex items-center justify-between mt-1">
-                  {activities.filter(a => a.type === 'flight' || !a.type).length > 0 ? (
+                  {activities.filter(a => isFlight(a)).length > 0 ? (
                     <p className="text-xs text-slate-400">
-                      {activities.filter(a => a.type === 'flight' || !a.type).length} flights
+                      {activities.filter(a => isFlight(a)).length} flights
                     </p>
                   ) : <span />}
                   {/* delete-all flights button hidden but kept for re-enable
                   <div className="flex items-center gap-3">
-                    {activities.filter(a => a.type === 'flight' || !a.type).length > 0 && (
+                    {activities.filter(a => isFlight(a)).length > 0 && (
                       <button
                         onClick={() => setConfirmDeleteAll('flights')}
                         className="text-slate-300 hover:text-red-400 text-lg leading-none transition-colors"
@@ -376,7 +375,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                     <p>{error}</p>
                   )}
                 </div>
-              ) : activities.filter(a => a.type === 'flight' || !a.type).length === 0 ? (
+              ) : activities.filter(a => isFlight(a)).length === 0 ? (
                 <div className="text-center py-8 space-y-3">
                   <p className="text-sm text-slate-400">No flights yet</p>
                   <button
@@ -402,13 +401,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                 <ReviewQueue
                   pending={pending}
                   earningMethod={earningMethod}
-                  onConfirm={async (confirmed) => {
-                    if (confirmed.confirmationNumber && allActivitiesByPNR.has(confirmed.confirmationNumber)) {
-                      await removeActivity(allActivitiesByPNR.get(confirmed.confirmationNumber).id)
-                    }
-                    await addActivity({ ...confirmed, year: confirmed.year || year })
-                    await dismissPending(confirmed.id)
-                  }}
+                  onConfirm={handleConfirmPending}
                   onSkip={dismissPending}
                   onClearAll={clearAllPending}
                 />
@@ -561,9 +554,9 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                 onClick={async () => {
                   const toDelete = activities.filter(a =>
                     confirmDeleteAll === 'flights'
-                      ? (a.type === 'flight' || !a.type)
+                      ? isFlight(a)
                       : confirmDeleteAll === 'card'
-                        ? (a.type === 'card_spend' || a.type === 'anniversary_bonus')
+                        ? isCardItem(a)
                         : a.type === 'misc'
                   )
                   for (const a of toDelete) await removeActivity(a.id)
