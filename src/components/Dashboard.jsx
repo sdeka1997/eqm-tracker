@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { collection, query, where, onSnapshot, doc, getDoc, setDoc, getDocs, deleteDoc, writeBatch } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useActivities } from '../hooks/useActivities'
@@ -148,17 +148,20 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
   }, [user.uid])
 
   // Segment map passed into Gmail sync for reminder detection and cancellation flagging
-  const existingSegmentsByPNR = new Map()
-  allActivitiesByPNR.forEach((acts, pnr) => {
-    existingSegmentsByPNR.set(pnr, acts.map(a => ({ origin: a.origin, destination: a.destination, date: a.date })))
-  })
+  const existingSegmentsByPNR = useMemo(() => {
+    const map = new Map()
+    allActivitiesByPNR.forEach((acts, pnr) => {
+      map.set(pnr, acts.map(a => ({ origin: a.origin, destination: a.destination, date: a.date })))
+    })
+    return map
+  }, [allActivitiesByPNR])
 
-  async function handleCancellation(confirmationNumber) {
+  const handleCancellation = useCallback(async (confirmationNumber) => {
     const acts = allActivitiesByPNR.get(confirmationNumber)
     if (acts) {
       for (const act of acts) await updateActivity(act.id, { possibleCancellation: true })
     }
-  }
+  }, [allActivitiesByPNR, updateActivity])
 
   const currentTier = getCurrentTier(earnedPoints)
 
