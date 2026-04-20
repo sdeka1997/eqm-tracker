@@ -131,18 +131,34 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
     })
   }, [user.uid])
 
-  // Track all confirmed activities by PNR across all years and sources
+  // Track all confirmed activities by PNR across all years and sources (PNR → array, supports multi-leg)
   const [allActivitiesByPNR, setAllActivitiesByPNR] = useState(new Map())
   useEffect(() => {
     return onSnapshot(collection(db, 'users', user.uid, 'activities'), snap => {
       const byPNR = new Map()
       snap.docs.forEach(d => {
         const data = d.data()
-        if (data.confirmationNumber) byPNR.set(data.confirmationNumber, { ...data, id: d.id })
+        if (data.confirmationNumber) {
+          const existing = byPNR.get(data.confirmationNumber) || []
+          byPNR.set(data.confirmationNumber, [...existing, { ...data, id: d.id }])
+        }
       })
       setAllActivitiesByPNR(byPNR)
     })
   }, [user.uid])
+
+  // Segment map passed into Gmail sync for reminder detection and cancellation flagging
+  const existingSegmentsByPNR = new Map()
+  allActivitiesByPNR.forEach((acts, pnr) => {
+    existingSegmentsByPNR.set(pnr, acts.map(a => ({ origin: a.origin, destination: a.destination, date: a.date })))
+  })
+
+  async function handleCancellation(confirmationNumber) {
+    const acts = allActivitiesByPNR.get(confirmationNumber)
+    if (acts) {
+      for (const act of acts) await updateActivity(act.id, { possibleCancellation: true })
+    }
+  }
 
   const currentTier = getCurrentTier(earnedPoints)
 
@@ -471,8 +487,10 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                   earningMethod={earningMethod}
                   onAddPending={async (data) => {
                     if (data.confirmationNumber && allActivitiesByPNR.has(data.confirmationNumber)) {
-                      // PNR match — remove existing confirmed flight and re-queue for review
-                      await removeActivity(allActivitiesByPNR.get(data.confirmationNumber).id)
+                      // PNR match — remove all existing legs for this PNR and re-queue for review
+                      for (const act of allActivitiesByPNR.get(data.confirmationNumber)) {
+                        await removeActivity(act.id)
+                      }
                       await addPending(data, {})
                     } else {
                       await addPending(data, {
@@ -481,6 +499,8 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                       })
                     }
                   }}
+                  onFlagCancellation={handleCancellation}
+                  existingSegmentsByPNR={existingSegmentsByPNR}
                   onCancel={() => setModal(null)}
                   onRefreshToken={onRefreshGmailToken}
                   userName={user.displayName}

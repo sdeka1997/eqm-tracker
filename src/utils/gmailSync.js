@@ -88,8 +88,10 @@ async function extractFlightsBatch(emails, geminiKey, { userName } = {}) {
     ? `The account holder's name is "${userName}" (may appear in different formats, e.g. all caps, last name first, or shortened). Prefer flights where this person is a passenger. If you cannot determine the passenger name from the email, still include the flight. Only skip a flight if you can clearly see it is for a different named passenger.`
     : `Include all flights found.`
 
-  const prompt = `Extract flight segments from each of the following emails.
-Return a JSON object where each key is the email index (0, 1, 2...) and the value is an array of flight segments found in that email.
+  const prompt = `Extract flight information from each of the following emails.
+Return a JSON object where each key is the email index (0, 1, 2...) and the value is an object with:
+- "cancelled": true if this email indicates a booking cancellation, false otherwise
+- "segments": an array of flight segments found in that email (use [] if cancelled or no flights found)
 
 Each segment must have:
 - "flightNumber": e.g. "AS 10" or "UA 234"
@@ -100,14 +102,14 @@ Each segment must have:
 Rules:
 - ${passengerClause}
 - Include all legs in a multi-segment itinerary for the account holder
-- Use [] for emails with no qualifying flights
+- Use "segments": [] for emails with no qualifying flights
 
 ${numbered}`
 
   let res, attempts = 0
   while (true) {
     res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${geminiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -120,7 +122,7 @@ ${numbered}`
     if (res.ok) break
     const err = await res.json().catch(() => ({}))
     const msg = err?.error?.message || res.statusText
-    if (res.status === 429 && attempts < 3) {
+    if ((res.status === 429 || res.status === 503) && attempts < 3) {
       const retryMatch = msg.match(/retry in ([\d.]+)s/i)
       const waitMs = retryMatch ? Math.ceil(parseFloat(retryMatch[1])) * 1000 + 1000 : 60000
       await new Promise(r => setTimeout(r, waitMs))
@@ -134,8 +136,11 @@ ${numbered}`
   const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || '{}'
   try {
     const parsed = JSON.parse(raw)
-    return emails.map((_, i) =>
-      (parsed[i] || parsed[String(i)] || [])
+    return emails.map((_, i) => {
+      const entry = parsed[i] ?? parsed[String(i)] ?? {}
+      const cancelled = entry.cancelled === true
+      const rawSegs = Array.isArray(entry.segments) ? entry.segments : []
+      const segments = rawSegs
         .filter(s => s.flightNumber && s.origin && s.destination && s.date)
         .map(s => ({
           flightNumber: s.flightNumber.toUpperCase().replace(/^([A-Z]{2})\s*(\d)/, '$1 $2'),
@@ -145,9 +150,10 @@ ${numbered}`
           prefix: s.flightNumber.slice(0, 2).toUpperCase(),
         }))
         .filter(s => VALID_AIRLINE_PREFIXES.has(s.prefix))
-    )
+      return { cancelled, segments }
+    })
   } catch {
-    return emails.map(() => [])
+    return emails.map(() => ({ cancelled: false, segments: [] }))
   }
 }
 
@@ -156,9 +162,18 @@ function parseConfirmationNumber(text) {
   return m ? m[1].toUpperCase() : null
 }
 
+// Returns true if every segment in newSegs already exists in existingSegs (reminder check).
+function isSubset(newSegs, existingSegs) {
+  if (newSegs.length === 0) return false
+  const existingKeys = new Set(existingSegs.map(s => `${s.origin}|${s.destination}|${s.date}`))
+  return newSegs.every(s => existingKeys.has(`${s.origin}|${s.destination}|${s.date}`))
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
-export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, onProgress, userName, sinceDate }) {
+// existingSegmentsByPNR: Map<pnr, {origin, destination, date}[]> — confirmed activities keyed by PNR.
+// Used to detect reminders (subset) vs. genuine new/changed itineraries.
+export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, onProgress, userName, sinceDate, existingSegmentsByPNR = new Map() }) {
   onProgress?.({ step: 'Searching for emails…', current: 0, total: 0 })
 
   const afterClause = sinceDate
@@ -175,42 +190,68 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
   for (const msg of msgIds) {
     const full = await gmailGet(`/users/me/messages/${msg.id}?format=full`, token)
     const headers = full.payload?.headers || []
+    const text = extractText(full.payload)
     emails.push({
       id: msg.id,
       emailSubject: headers.find(h => h.name.toLowerCase() === 'subject')?.value || '',
       emailFrom: headers.find(h => h.name.toLowerCase() === 'from')?.value || '',
-      text: extractText(full.payload),
+      text,
       emailHtml: extractHtml(full.payload),
       internalDate: parseInt(full.internalDate || '0'),
+      pnr: parseConfirmationNumber(text),
     })
     onProgress?.({ step: `Fetching emails… (${emails.length}/${total})`, current: emails.length, total })
   }
 
-  // Sort newest first so most recent email wins dedup
+  // Sort newest first so most recent email wins per PNR
   emails.sort((a, b) => b.internalDate - a.internalDate)
+
+  // Keep only the newest email per PNR; no-PNR emails all pass through
+  const seenPNRs = new Set()
+  const dedupedEmails = []
+  for (const email of emails) {
+    if (email.pnr) {
+      if (seenPNRs.has(email.pnr)) continue
+      seenPNRs.add(email.pnr)
+    }
+    dedupedEmails.push(email)
+  }
 
   // Batch through Gemini
   const seenFlightKeys = new Set()
   const results = []
 
-  for (let i = 0; i < emails.length; i += BATCH_SIZE) {
-    const batch = emails.slice(i, i + BATCH_SIZE)
+  for (let i = 0; i < dedupedEmails.length; i += BATCH_SIZE) {
+    const batch = dedupedEmails.slice(i, i + BATCH_SIZE)
     const batchNum = Math.floor(i / BATCH_SIZE) + 1
-    const batchTotal = Math.ceil(emails.length / BATCH_SIZE)
-    onProgress?.({ step: `Parsing emails (batch ${batchNum}/${batchTotal})…`, current: i, total: emails.length })
+    const batchTotal = Math.ceil(dedupedEmails.length / BATCH_SIZE)
+    onProgress?.({ step: `Parsing emails (batch ${batchNum}/${batchTotal})…`, current: i, total: dedupedEmails.length })
 
-    const segmentsByIndex = await extractFlightsBatch(batch, geminiKey, { userName })
+    const batchResults = await extractFlightsBatch(batch, geminiKey, { userName })
 
     for (let j = 0; j < batch.length; j++) {
       const email = batch[j]
-      const segments = segmentsByIndex[j]
+      const { cancelled, segments } = batchResults[j]
+      const confNum = email.pnr
+
+      // Cancellation email with no segments — flag existing activity rather than queuing
+      if (cancelled && segments.length === 0 && confNum) {
+        results.push({ type: 'cancellation', confirmationNumber: confNum })
+        continue
+      }
+
       if (segments.length === 0) continue
 
-      const confNum = parseConfirmationNumber(email.text)
+      // Reminder check: if all segments are already confirmed under this PNR, skip
+      if (confNum && existingSegmentsByPNR.has(confNum)) {
+        if (isSubset(segments, existingSegmentsByPNR.get(confNum))) continue
+      }
 
       for (const seg of segments) {
+        // Dedup key: PNR + route (no date) so a changed route on the same PNR replaces the old one;
+        // fallback to flightNumber + date when there's no PNR
         const flightKey = confNum
-          ? `${confNum}|${seg.origin}|${seg.destination}|${seg.date}`
+          ? `${confNum}|${seg.origin}|${seg.destination}`
           : `${seg.flightNumber}|${seg.date}`
         if (seenFlightKeys.has(flightKey)) continue
         seenFlightKeys.add(flightKey)
@@ -248,6 +289,10 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
     }
   }
 
-  results.sort((a, b) => a.date.localeCompare(b.date))
+  results.sort((a, b) => {
+    if (a.type === 'cancellation') return 1
+    if (b.type === 'cancellation') return -1
+    return (a.date || '').localeCompare(b.date || '')
+  })
   return results
 }

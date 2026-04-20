@@ -15,7 +15,7 @@ function timeAgo(isoString) {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
-export default function GmailSync({ uid, accessToken, earningMethod, onAddPending, onCancel, onRefreshToken, userName, lastPoll, onPollComplete }) {
+export default function GmailSync({ uid, accessToken, earningMethod, onAddPending, onFlagCancellation, existingSegmentsByPNR, onCancel, onRefreshToken, userName, lastPoll, onPollComplete }) {
   const [state, setState] = useState('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const [tokenExpired, setTokenExpired] = useState(false)
@@ -80,17 +80,23 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
     setTokenExpired(false)
 
     try {
-      const flights = await syncFlightsFromGmail(token, geminiKey, {
+      const results = await syncFlightsFromGmail(token, geminiKey, {
         earningMethod,
         onProgress: p => setProgress(p),
         userName,
         sinceDate,
+        existingSegmentsByPNR,
       })
 
       let added = 0, cancelled = 0
-      for (const flight of flights) {
-        await onAddPending(flight)
-        flight.cancelled ? cancelled++ : added++
+      for (const item of results) {
+        if (item.type === 'cancellation') {
+          await onFlagCancellation?.(item.confirmationNumber)
+          cancelled++
+        } else {
+          await onAddPending(item)
+          added++
+        }
       }
 
       const now = new Date().toISOString()
