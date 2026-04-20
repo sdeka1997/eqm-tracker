@@ -163,7 +163,7 @@ function CardSpendReviewCard({ item, onConfirm, onSkip }) {
 // ── Mobile swipe card ────────────────────────────────────────────────────────
 
 function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity, onConfirm, onDismiss, onCanConfirmChange, confirmBlocked }) {
-  const isFlight = isFlight(item)
+  const isFlightItem = isFlight(item)
   const [showEmail, setShowEmail] = useState(false)
   const [bookingType, setBookingType] = useState(item.bookingType || '')
   const [fareOption, setFareOption] = useState(item.fareOption || '')
@@ -171,15 +171,15 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
   const [distanceMiles, setDistanceMiles] = useState(item.distanceMiles || 0)
   const [showErrors, setShowErrors] = useState(false)
 
-  const needsReview = isFlight && (item.fareSource === 'estimated' || item.fareSource === 'default' || !item.fareSource)
+  const needsReview = isFlightItem && (item.fareSource === 'estimated' || item.fareSource === 'default' || !item.fareSource)
   const fareOpts = FARE_OPTIONS[bookingType] || []
   const selectedFare = fareOpts.find(o => o.value === fareOption) || fareOpts[0]
-  const livePoints = isFlight
+  const livePoints = isFlightItem
     ? calculateFlightPoints({ earningMethod, distanceMiles, bookingType, fareOption })
     : (item.statusPoints || 0)
 
-  const needsFareOption = isFlight && !!bookingType && bookingType !== 'award'
-  const canConfirm = !isFlight || (
+  const needsFareOption = isFlightItem && !!bookingType && bookingType !== 'award'
+  const canConfirm = !isFlightItem || (
     !!bookingType &&
     (!needsFareOption || !!fareOption) &&
     (earningMethod !== 'distance' || distanceMiles > 0)
@@ -205,7 +205,7 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
 
   function handleConfirmTap() {
     if (!canConfirm) { setShowErrors(true); return }
-    if (isFlight) {
+    if (isFlightItem) {
       onConfirm({ bookingType, fareOption, fareLabel: selectedFare?.label || '', multiplier: selectedFare?.multiplier || 1, distanceMiles, statusPoints: livePoints, confirmationNumber: pnr || null })
     } else {
       onConfirm({})
@@ -232,7 +232,7 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
           <div className="flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-base font-bold text-slate-800">
-                {isFlight ? `${item.origin} → ${item.destination}` : '💳 Card Spend'}
+                {isFlightItem ? `${item.origin} → ${item.destination}` : '💳 Card Spend'}
               </span>
               {item.flightNumber && (
                 <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">{item.flightNumber}</span>
@@ -244,8 +244,8 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
             <div className="flex items-center gap-2 mt-0.5">
               <span className="text-sm text-slate-500">
                 {item.date}
-                {isFlight && item.distanceMiles ? ` · ${item.distanceMiles.toLocaleString()} mi` : ''}
-                {!isFlight && item.notes ? ` · ${item.notes}` : ''}
+                {isFlightItem && item.distanceMiles ? ` · ${item.distanceMiles.toLocaleString()} mi` : ''}
+                {!isFlightItem && item.notes ? ` · ${item.notes}` : ''}
               </span>
               {item.emailHtml && (
                 <button
@@ -265,7 +265,7 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
         </div>
 
         {/* Flight fields — always visible */}
-        {isFlight && (
+        {isFlightItem && (
           <div className="px-4 pb-3">
             <div className="space-y-2 bg-slate-50 rounded-xl p-3">
               <FlightFields
@@ -303,21 +303,21 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
 
 
 function CardPeek({ item }) {
-  const isFlight = isFlight(item)
-  const needsReview = isFlight && (!item.bookingType || item.fareSource === 'estimated' || item.fareSource === 'default' || !item.fareSource)
+  const isFlightItem = isFlight(item)
+  const needsReview = isFlightItem && (!item.bookingType || item.fareSource === 'estimated' || item.fareSource === 'default' || !item.fareSource)
   return (
     <div className={`bg-white rounded-2xl border-2 px-4 py-4 shadow-lg ${needsReview ? 'border-amber-200' : 'border-slate-100'}`}>
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-base font-bold text-slate-800">
-              {isFlight ? `${item.origin} → ${item.destination}` : '💳 Card Spend'}
+              {isFlightItem ? `${item.origin} → ${item.destination}` : '💳 Card Spend'}
             </span>
             {needsReview && <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">needs review</span>}
           </div>
           <div className="text-xs text-slate-400 mt-0.5">
             {item.date}
-            {isFlight && item.distanceMiles ? ` · ${item.distanceMiles.toLocaleString()} mi` : ''}
+            {isFlightItem && item.distanceMiles ? ` · ${item.distanceMiles.toLocaleString()} mi` : ''}
           </div>
         </div>
         <div className="text-right shrink-0">
