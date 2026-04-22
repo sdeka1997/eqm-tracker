@@ -206,13 +206,19 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
   // Sort newest first so most recent email wins per PNR
   emails.sort((a, b) => b.internalDate - a.internalDate)
 
-  // Keep only the newest email per PNR; no-PNR emails all pass through
-  const seenPNRs = new Set()
+  // Keep the newest cancellation email per PNR + the newest non-cancellation email per PNR.
+  // Cancellation emails are identified by subject keywords before hitting Gemini so they
+  // aren't dropped by the regular dedup. No-PNR emails all pass through.
+  const CANCELLATION_SUBJECT_RE = /\b(cancel|cancell|cancellation|refund|void)\b/i
+  const seenCancelPNRs = new Set()
+  const seenRegularPNRs = new Set()
   const dedupedEmails = []
   for (const email of emails) {
     if (email.pnr) {
-      if (seenPNRs.has(email.pnr)) continue
-      seenPNRs.add(email.pnr)
+      const isCancel = CANCELLATION_SUBJECT_RE.test(email.emailSubject)
+      const seen = isCancel ? seenCancelPNRs : seenRegularPNRs
+      if (seen.has(email.pnr)) continue
+      seen.add(email.pnr)
     }
     dedupedEmails.push(email)
   }
