@@ -101,7 +101,7 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
 
       const now = new Date().toISOString()
       await onPollComplete(now)
-      setSummary({ added: added + cancelled, cancelled })
+      setSummary({ added, cancelled })
       setState('done')
     } catch (err) {
       if (err.message?.includes('401')) {
