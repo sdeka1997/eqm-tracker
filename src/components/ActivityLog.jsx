@@ -90,8 +90,26 @@ export default function ActivityLog({ activities, earningMethod, onDelete, onUpd
   const currentMonth = new Date().toISOString().slice(0, 7)
   const [expanded, setExpanded] = useState(() => new Set(['__default__']))
   const [editing, setEditing] = useState(null)
+  const [undoQueue, setUndoQueue] = useState([]) // [{ id, label, timeoutId }]
+  const [pendingDeleteIds, setPendingDeleteIds] = useState(() => new Set())
 
-  const flights = activities.filter(a => isFlight(a))
+  function handleCancelledDelete(id, label) {
+    const timeoutId = setTimeout(() => {
+      onDelete(id)
+      setUndoQueue(q => q.filter(u => u.id !== id))
+    }, 4000)
+    setPendingDeleteIds(s => new Set([...s, id]))
+    setUndoQueue(q => [...q, { id, label, timeoutId }])
+  }
+
+  function handleUndo(id) {
+    const entry = undoQueue.find(u => u.id === id)
+    if (entry) clearTimeout(entry.timeoutId)
+    setUndoQueue(q => q.filter(u => u.id !== id))
+    setPendingDeleteIds(s => { const n = new Set(s); n.delete(id); return n })
+  }
+
+  const flights = activities.filter(a => isFlight(a) && !pendingDeleteIds.has(a.id))
 
   if (flights.length === 0) {
     return (
@@ -118,6 +136,12 @@ export default function ActivityLog({ activities, earningMethod, onDelete, onUpd
           onClose={() => setEditing(null)}
         />
       )}
+      {undoQueue.map(u => (
+        <div key={u.id} className="flex items-center justify-between bg-slate-800 text-white px-4 py-3 rounded-xl text-sm mb-2">
+          <span className="text-slate-300">Deleted <span className="font-medium text-white">{u.label}</span></span>
+          <button onClick={() => handleUndo(u.id)} className="ml-4 font-semibold text-alaska-teal shrink-0">Undo</button>
+        </div>
+      ))}
       <div className="space-y-2">
         {months.map(month => {
           const items = byMonth[month]
@@ -159,7 +183,7 @@ export default function ActivityLog({ activities, earningMethod, onDelete, onUpd
                     <div
                       key={a.id}
                       onClick={() => setEditing(a.id)}
-                      className="cursor-pointer group transition-colors hover:bg-slate-50"
+                      className={`cursor-pointer group transition-colors hover:bg-slate-50${a.possibleCancellation ? ' pb-2.5' : ''}`}
                     >
                       <div className="flex items-center gap-3 px-4 py-2.5">
                         <span className="text-base">✈️</span>
@@ -191,15 +215,23 @@ export default function ActivityLog({ activities, earningMethod, onDelete, onUpd
                       {a.possibleCancellation && (
                         <div
                           onClick={e => e.stopPropagation()}
-                          className="mx-4 mb-2.5 flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5"
+                          className="mx-4 flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5"
                         >
-                          <span className="text-xs text-amber-700">⚠ Possibly cancelled — verify and delete if needed</span>
-                          <button
-                            onClick={e => { e.stopPropagation(); onUpdate(a.id, { possibleCancellation: false }) }}
-                            className="text-xs text-amber-600 hover:text-amber-800 font-medium ml-3 shrink-0"
-                          >
-                            Dismiss
-                          </button>
+                          <span className="text-xs text-amber-700">⚠ Possibly cancelled</span>
+                          <div className="flex items-center gap-3 ml-3 shrink-0">
+                            <button
+                              onClick={e => { e.stopPropagation(); handleCancelledDelete(a.id, `${a.origin} → ${a.destination}`) }}
+                              className="text-xs text-red-500 hover:text-red-700 font-medium"
+                            >
+                              Delete
+                            </button>
+                            <button
+                              onClick={e => { e.stopPropagation(); onUpdate(a.id, { possibleCancellation: false }) }}
+                              className="text-xs text-amber-600 hover:text-amber-800 font-medium"
+                            >
+                              Dismiss
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
