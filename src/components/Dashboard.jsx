@@ -160,7 +160,9 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
     const acts = allActivitiesByPNR.get(confirmationNumber)
     if (acts) {
       for (const act of acts) await updateActivity(act.id, { possibleCancellation: true })
+      return true
     }
+    return false
   }, [allActivitiesByPNR, updateActivity])
 
   const currentTier = getCurrentTier(earnedPoints)

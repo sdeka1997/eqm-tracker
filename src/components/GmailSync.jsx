@@ -91,8 +91,8 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
       let added = 0, cancelled = 0
       for (const item of results) {
         if (item.type === 'cancellation') {
-          await onFlagCancellation?.(item.confirmationNumber)
-          cancelled++
+          const flagged = await onFlagCancellation?.(item.confirmationNumber)
+          if (flagged) cancelled++
         } else {
           await onAddPending(item)
           added++
