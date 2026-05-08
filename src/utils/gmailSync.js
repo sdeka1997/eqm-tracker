@@ -198,7 +198,12 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
     onProgress?.({ step: `Fetching emails… (${emails.length}/${total})`, current: emails.length, total })
   }
 
+  // Newest email wins per PNR — sort before Gemini so the first time we see a PNR it's the most recent
+  emails.sort((a, b) => b.internalDate - a.internalDate)
+
   // Batch through Gemini
+  const seenRegularPNRs = new Set()
+  const seenCancelPNRs = new Set()
   const seenFlightKeys = new Set()
   const results = []
 
@@ -214,6 +219,14 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
       const email = batch[j]
       const { cancelled, confirmationNumber, segments } = batchResults[j]
       const confNum = confirmationNumber
+
+      // Newest email wins per PNR — track cancellations and regular emails separately
+      // so both the newest cancellation and newest booking email per PNR pass through
+      if (confNum) {
+        const seenPNRs = cancelled ? seenCancelPNRs : seenRegularPNRs
+        if (seenPNRs.has(confNum)) continue
+        seenPNRs.add(confNum)
+      }
 
       // Cancellation email with no segments — flag existing activity rather than queuing
       if (cancelled && segments.length === 0 && confNum) {
