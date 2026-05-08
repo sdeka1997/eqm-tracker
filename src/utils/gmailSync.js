@@ -10,9 +10,6 @@ const VALID_AIRLINE_PREFIXES = new Set([
   'SQ','NH','OZ','KE','MU','CA','CZ','EK','EY','QR','TK','LX','OS','AZ',
 ])
 
-const CONFIRMATION_NUMBER_RE =
-  /(?:confirmation|confirmation\s+(?:code|number)|record\s+locator|booking\s+(?:reference|code)|locator|pnr)[:\s#*]+([A-Z0-9]{5,8})\b/i
-
 // ── Base64 / MIME ─────────────────────────────────────────────────────────────
 
 function decodeBase64(str) {
@@ -81,7 +78,7 @@ const BATCH_SIZE = 30
 
 async function extractFlightsBatch(emails, geminiKey, { userName } = {}) {
   const numbered = emails.map((e, i) =>
-    `--- EMAIL ${i} ---\n${e.text.slice(0, 2000)}`
+    `--- EMAIL ${i} ---\nFrom: ${e.emailFrom}\n${e.text.slice(0, 2000)}`
   ).join('\n\n')
 
   const passengerClause = userName
@@ -91,6 +88,7 @@ async function extractFlightsBatch(emails, geminiKey, { userName } = {}) {
   const prompt = `Extract flight information from each of the following emails.
 Return a JSON object where each key is the email index (0, 1, 2...) and the value is an object with:
 - "cancelled": true if this email indicates a booking cancellation, false otherwise
+- "confirmationNumber": the booking confirmation code, PNR, or record locator as a string (e.g. "ABC123"), or null if not found. If multiple confirmation numbers are present, use the one associated with the sender of the email (From field).
 - "segments": an array of flight segments found in that email (use [] if cancelled or no flights found)
 
 Each segment must have:
@@ -139,6 +137,9 @@ ${numbered}`
     return emails.map((_, i) => {
       const entry = parsed[i] ?? parsed[String(i)] ?? {}
       const cancelled = entry.cancelled === true
+      const confirmationNumber = typeof entry.confirmationNumber === 'string' && entry.confirmationNumber.trim()
+        ? entry.confirmationNumber.trim().toUpperCase()
+        : null
       const rawSegs = Array.isArray(entry.segments) ? entry.segments : []
       const segments = rawSegs
         .filter(s => s.flightNumber && s.origin && s.destination && s.date)
@@ -150,16 +151,11 @@ ${numbered}`
           prefix: s.flightNumber.slice(0, 2).toUpperCase(),
         }))
         .filter(s => VALID_AIRLINE_PREFIXES.has(s.prefix))
-      return { cancelled, segments }
+      return { cancelled, confirmationNumber, segments }
     })
   } catch {
-    return emails.map(() => ({ cancelled: false, segments: [] }))
+    return emails.map(() => ({ cancelled: false, confirmationNumber: null, segments: [] }))
   }
-}
-
-function parseConfirmationNumber(text) {
-  const m = text.match(CONFIRMATION_NUMBER_RE)
-  return m ? m[1].toUpperCase() : null
 }
 
 // Returns true if every segment in newSegs already exists in existingSegs (reminder check).
@@ -198,47 +194,39 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
       text,
       emailHtml: extractHtml(full.payload),
       internalDate: parseInt(full.internalDate || '0'),
-      pnr: parseConfirmationNumber(text),
     })
     onProgress?.({ step: `Fetching emails… (${emails.length}/${total})`, current: emails.length, total })
   }
 
-  // Sort newest first so most recent email wins per PNR
+  // Newest email wins per PNR — sort before Gemini so the first time we see a PNR it's the most recent
   emails.sort((a, b) => b.internalDate - a.internalDate)
 
-  // Keep the newest cancellation email per PNR + the newest non-cancellation email per PNR.
-  // Cancellation emails are identified by subject keywords before hitting Gemini so they
-  // aren't dropped by the regular dedup. No-PNR emails all pass through.
-  const CANCELLATION_SUBJECT_RE = /\b(cancel|cancell|cancellation|refund|void)\b/i
-  const seenCancelPNRs = new Set()
-  const seenRegularPNRs = new Set()
-  const dedupedEmails = []
-  for (const email of emails) {
-    if (email.pnr) {
-      const isCancel = CANCELLATION_SUBJECT_RE.test(email.emailSubject)
-      const seen = isCancel ? seenCancelPNRs : seenRegularPNRs
-      if (seen.has(email.pnr)) continue
-      seen.add(email.pnr)
-    }
-    dedupedEmails.push(email)
-  }
-
   // Batch through Gemini
+  const seenRegularPNRs = new Set()
+  const seenCancelPNRs = new Set()
   const seenFlightKeys = new Set()
   const results = []
 
-  for (let i = 0; i < dedupedEmails.length; i += BATCH_SIZE) {
-    const batch = dedupedEmails.slice(i, i + BATCH_SIZE)
+  for (let i = 0; i < emails.length; i += BATCH_SIZE) {
+    const batch = emails.slice(i, i + BATCH_SIZE)
     const batchNum = Math.floor(i / BATCH_SIZE) + 1
-    const batchTotal = Math.ceil(dedupedEmails.length / BATCH_SIZE)
-    onProgress?.({ step: `Parsing emails (batch ${batchNum}/${batchTotal})…`, current: i, total: dedupedEmails.length })
+    const batchTotal = Math.ceil(emails.length / BATCH_SIZE)
+    onProgress?.({ step: `Parsing emails (batch ${batchNum}/${batchTotal})…`, current: i, total: emails.length })
 
     const batchResults = await extractFlightsBatch(batch, geminiKey, { userName })
 
     for (let j = 0; j < batch.length; j++) {
       const email = batch[j]
-      const { cancelled, segments } = batchResults[j]
-      const confNum = email.pnr
+      const { cancelled, confirmationNumber, segments } = batchResults[j]
+      const confNum = confirmationNumber
+
+      // Newest email wins per PNR — track cancellations and regular emails separately
+      // so both the newest cancellation and newest booking email per PNR pass through
+      if (confNum) {
+        const seenPNRs = cancelled ? seenCancelPNRs : seenRegularPNRs
+        if (seenPNRs.has(confNum)) continue
+        seenPNRs.add(confNum)
+      }
 
       // Cancellation email with no segments — flag existing activity rather than queuing
       if (cancelled && segments.length === 0 && confNum) {
