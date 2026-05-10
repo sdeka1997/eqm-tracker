@@ -21,6 +21,9 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
   const [tokenExpired, setTokenExpired] = useState(false)
   const [progress, setProgress] = useState({ step: '', current: 0, total: 0 })
   const [summary, setSummary] = useState({ added: 0, cancelled: 0 })
+  const [debugLog, setDebugLog] = useState([])
+  const [debugOpen, setDebugOpen] = useState(false)
+  const isDev = window.location.hostname === 'localhost'
   const [currentToken, setCurrentToken] = useState(accessToken)
   const [geminiKey, setGeminiKey] = useState('')
   const [geminiKeyInput, setGeminiKeyInput] = useState('')
@@ -80,13 +83,14 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
     setTokenExpired(false)
 
     try {
-      const results = await syncFlightsFromGmail(token, geminiKey, {
+      const { results, debugLog: log } = await syncFlightsFromGmail(token, geminiKey, {
         earningMethod,
         onProgress: p => setProgress(p),
         userName,
         sinceDate,
         existingSegmentsByPNR,
       })
+      setDebugLog(log)
 
       let added = 0, cancelled = 0
       for (const item of results) {
@@ -270,15 +274,62 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
   }
 
   if (state === 'done') {
+    const dispositionStyle = {
+      added:               'bg-green-100 text-green-800',
+      cancellation:        'bg-amber-100 text-amber-800',
+      cancelled_suppressed:'bg-red-100 text-red-700',
+      pnr_dedup:           'bg-slate-100 text-slate-500',
+      no_segments:         'bg-slate-100 text-slate-500',
+      reminder:            'bg-blue-50 text-blue-600',
+      flight_dedup:        'bg-slate-100 text-slate-500',
+    }
+    const dispositionLabel = {
+      added:               'Added',
+      cancellation:        'Cancellation',
+      cancelled_suppressed:'Suppressed (cancelled)',
+      pnr_dedup:           'Skipped (duplicate PNR)',
+      no_segments:         'Skipped (no flights)',
+      reminder:            'Skipped (already confirmed)',
+      flight_dedup:        'Skipped (duplicate flight)',
+    }
     return (
-      <div className="text-center py-6 space-y-2">
-        <div className="text-4xl mb-3">📋</div>
-        <p className="font-semibold text-slate-800">{summary.added} flight{summary.added !== 1 ? 's' : ''} added to review queue</p>
-        {summary.cancelled > 0 && (
-          <p className="text-sm text-amber-600">{summary.cancelled} flagged as possibly cancelled</p>
+      <div className="space-y-4">
+        <div className="text-center py-4 space-y-2">
+          <div className="text-4xl mb-3">📋</div>
+          <p className="font-semibold text-slate-800">{summary.added} flight{summary.added !== 1 ? 's' : ''} added to review queue</p>
+          {summary.cancelled > 0 && (
+            <p className="text-sm text-amber-600">{summary.cancelled} flagged as possibly cancelled</p>
+          )}
+          <p className="text-sm text-slate-500">Review and confirm each one on your dashboard</p>
+        </div>
+        {isDev && debugLog.length > 0 && (
+          <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
+            <button
+              onClick={() => setDebugOpen(o => !o)}
+              className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 text-slate-600 font-medium hover:bg-slate-100"
+            >
+              <span>Debug — {debugLog.length} emails processed</span>
+              <span>{debugOpen ? '▲' : '▼'}</span>
+            </button>
+            {debugOpen && (
+              <div className="divide-y divide-slate-100 max-h-96 overflow-y-auto">
+                {debugLog.map((entry, i) => (
+                  <div key={i} className="px-3 py-2 space-y-0.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-slate-700 font-medium truncate flex-1" title={entry.subject}>{entry.subject}</span>
+                      <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold ${dispositionStyle[entry.disposition] || 'bg-slate-100 text-slate-500'}`}>
+                        {dispositionLabel[entry.disposition] || entry.disposition}
+                      </span>
+                    </div>
+                    <div className="text-slate-400 truncate">{entry.from} · {entry.date}{entry.confirmationNumber ? ` · PNR: ${entry.confirmationNumber}` : ''}</div>
+                    {entry.detail && <div className="text-slate-500">{entry.detail}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
-        <p className="text-sm text-slate-500 mb-4">Review and confirm each one on your dashboard</p>
-        <button onClick={onCancel} className="bg-alaska-teal text-white px-6 py-2 rounded-xl text-sm font-medium">Done</button>
+        <button onClick={onCancel} className="w-full bg-alaska-teal text-white px-6 py-2 rounded-xl text-sm font-medium">Done</button>
       </div>
     )
   }
