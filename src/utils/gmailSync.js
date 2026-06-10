@@ -47,6 +47,20 @@ function extractHtml(payload) {
   return html ? decodeBase64(html.data) : ''
 }
 
+// Strip style/script/img from HTML before sending to Gemini. Preserves table
+// structure and text content so Gemini can reliably find confirmation codes,
+// flight numbers, etc. that live inside table cells in airline emails.
+function prepareHtmlForGemini(html) {
+  if (!html) return ''
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<img[^>]*>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
 // ── Gmail API ─────────────────────────────────────────────────────────────────
 
 async function gmailGet(path, token) {
@@ -74,11 +88,11 @@ async function searchMessages(token, query) {
 
 // ── Gemini parsing ────────────────────────────────────────────────────────────
 
-const BATCH_SIZE = 30
+const BATCH_SIZE = 10
 
 async function extractFlightsBatch(emails, geminiKey, { userName } = {}) {
   const numbered = emails.map((e, i) =>
-    `--- EMAIL ${i} ---\nFrom: ${e.emailFrom}\n${e.text}`
+    `--- EMAIL ${i} ---\nFrom: ${e.emailFrom}\nSubject: ${e.emailSubject}\n${prepareHtmlForGemini(e.emailHtml) || e.text}`
   ).join('\n\n')
 
   const passengerClause = userName
@@ -107,7 +121,7 @@ ${numbered}`
   let res, attempts = 0
   while (true) {
     res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${geminiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -182,31 +196,40 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
   const total = msgIds.length
   onProgress?.({ step: 'Fetching emails…', current: 0, total })
 
+  const FETCH_CONCURRENCY = 10
   const emails = []
-  for (const msg of msgIds) {
-    const full = await gmailGet(`/users/me/messages/${msg.id}?format=full`, token)
-    const headers = full.payload?.headers || []
-    const text = extractText(full.payload)
-    emails.push({
-      id: msg.id,
-      emailSubject: headers.find(h => h.name.toLowerCase() === 'subject')?.value || '',
-      emailFrom: headers.find(h => h.name.toLowerCase() === 'from')?.value || '',
-      text,
-      emailHtml: extractHtml(full.payload),
-      internalDate: parseInt(full.internalDate || '0'),
-    })
+  for (let i = 0; i < msgIds.length; i += FETCH_CONCURRENCY) {
+    const chunk = msgIds.slice(i, i + FETCH_CONCURRENCY)
+    const results = await Promise.all(chunk.map(async (msg) => {
+      const full = await gmailGet(`/users/me/messages/${msg.id}?format=full`, token)
+      const headers = full.payload?.headers || []
+      return {
+        id: msg.id,
+        emailSubject: headers.find(h => h.name.toLowerCase() === 'subject')?.value || '',
+        emailFrom: headers.find(h => h.name.toLowerCase() === 'from')?.value || '',
+        text: extractText(full.payload),
+        emailHtml: extractHtml(full.payload),
+        internalDate: parseInt(full.internalDate || '0'),
+      }
+    }))
+    emails.push(...results)
     onProgress?.({ step: `Fetching emails… (${emails.length}/${total})`, current: emails.length, total })
   }
 
-  // Newest email wins per PNR — sort before Gemini so the first time we see a PNR it's the most recent
-  emails.sort((a, b) => b.internalDate - a.internalDate)
+  // Sort oldest-first: the earliest booking email's PNR becomes the primary stored PNR.
+  // Newer emails for the same booking overwrite segments (catches schedule changes) and
+  // accumulate any additional PNR codes (catches codeshare partner confirmations).
+  emails.sort((a, b) => a.internalDate - b.internalDate)
 
-  // Batch through Gemini
-  const seenRegularPNRs = new Set()
   const seenCancelPNRs = new Set()
   const seenFlightKeys = new Set()
   const results = []
   const debugLog = []
+
+  // Maps any PNR code → the mutable booking object it belongs to. Allows later
+  // emails to accumulate new PNR codes and overwrite segments on the same booking.
+  // booking = { confirmationNumber, confirmationNumbers[], segments, email, logEntry }
+  const pnrToBooking = new Map()
 
   for (let i = 0; i < emails.length; i += BATCH_SIZE) {
     const batch = emails.slice(i, i + BATCH_SIZE)
@@ -219,8 +242,7 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
     for (let j = 0; j < batch.length; j++) {
       const email = batch[j]
       const { cancelled, confirmationNumbers, segments } = batchResults[j]
-      // Primary PNR: prefer whichever code matches an existing confirmed activity (codeshare
-      // emails carry multiple codes), falling back to the first one Gemini returned.
+      // Prefer whichever code matches an already-confirmed activity; otherwise use first.
       const confNum = confirmationNumbers.find(c => existingSegmentsByPNR.has(c)) || confirmationNumbers[0] || null
 
       const logEntry = {
@@ -234,102 +256,178 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
         detail: null,
       }
 
-      // Newest email wins per PNR — only skip if we've already seen a *productive* email
-      // (one with segments or a real cancellation) for this PNR. Check all PNRs in the array
-      // so codeshare emails don't slip past dedup regardless of which code Gemini leads with.
-      if (confirmationNumbers.length > 0) {
-        const seenPNRs = cancelled ? seenCancelPNRs : seenRegularPNRs
-        const alreadySeen = confirmationNumbers.find(c => seenPNRs.has(c))
-        if (alreadySeen) {
-          logEntry.disposition = 'pnr_dedup'
-          logEntry.detail = `Older duplicate of PNR ${alreadySeen} — newer email already processed`
-          debugLog.push(logEntry)
-          continue
+      // ── Cancellation ────────────────────────────────────────────────────────
+      if (cancelled) {
+        if (confirmationNumbers.length > 0) {
+          const alreadySeen = confirmationNumbers.find(c => seenCancelPNRs.has(c))
+          if (alreadySeen) {
+            logEntry.disposition = 'pnr_dedup'
+            logEntry.detail = `Duplicate cancellation for PNR ${alreadySeen} — already processed`
+            debugLog.push(logEntry)
+            continue
+          }
         }
-      }
-
-      // Cancellation email with no segments — flag existing activity rather than queuing
-      if (cancelled && segments.length === 0 && confNum) {
-        confirmationNumbers.forEach(c => seenCancelPNRs.add(c))
-        results.push({ type: 'cancellation', confirmationNumber: confNum, confirmationNumbers })
-        logEntry.disposition = 'cancellation'
-        logEntry.detail = `Cancellation for PNR ${confNum}`
+        if (confNum) {
+          confirmationNumbers.forEach(c => seenCancelPNRs.add(c))
+          results.push({ type: 'cancellation', confirmationNumber: confNum, confirmationNumbers })
+          logEntry.disposition = 'cancellation'
+          logEntry.detail = `Cancellation for PNR ${confNum}`
+        } else {
+          logEntry.disposition = 'no_segments'
+          logEntry.detail = 'Cancelled email with no PNR — skipped'
+        }
         debugLog.push(logEntry)
         continue
       }
 
+      // ── Merge into existing booking if any PNR overlaps ─────────────────────
+      const existingBooking = confirmationNumbers.map(c => pnrToBooking.get(c)).find(Boolean)
+      if (existingBooking) {
+        // Accumulate any PNR codes this email introduces
+        const newCodes = confirmationNumbers.filter(c => !existingBooking.confirmationNumbers.includes(c))
+        newCodes.forEach(c => {
+          existingBooking.confirmationNumbers.push(c)
+          pnrToBooking.set(c, existingBooking)
+        })
+        // Newer email's segments overwrite (we're oldest-first, so this email is newer)
+        if (segments.length > 0) {
+          existingBooking.segments = segments
+          existingBooking.email = email
+        }
+        logEntry.disposition = 'pnr_merge'
+        logEntry.detail = `Merged into booking ${existingBooking.confirmationNumber}${newCodes.length ? ` · added PNRs: ${newCodes.join(', ')}` : ''}`
+        debugLog.push(logEntry)
+        continue
+      }
+
+      // ── No segments ─────────────────────────────────────────────────────────
       if (segments.length === 0) {
         logEntry.disposition = 'no_segments'
-        logEntry.detail = cancelled ? 'Cancelled email with no segments and no PNR — skipped' : 'No flight segments found by Gemini'
+        logEntry.detail = 'No flight segments found by Gemini'
         debugLog.push(logEntry)
         continue
       }
 
-      confirmationNumbers.forEach(c => seenRegularPNRs.add(c))
+      // ── New booking ─────────────────────────────────────────────────────────
+      const primaryPNR = confNum || confirmationNumbers[0] || null
 
-      // Reminder check: if all segments are already confirmed under any of the PNRs, skip
-      const matchedExistingPNR = confirmationNumbers.find(c => existingSegmentsByPNR.has(c))
-      if (matchedExistingPNR) {
-        if (isSubset(segments, existingSegmentsByPNR.get(matchedExistingPNR))) {
-          logEntry.disposition = 'reminder'
-          logEntry.detail = `All segments already confirmed under PNR ${matchedExistingPNR}`
-          debugLog.push(logEntry)
-          continue
+      if (primaryPNR) {
+        // Register booking — reminder check and result creation deferred to final pass
+        const booking = {
+          confirmationNumber: primaryPNR,
+          confirmationNumbers: [...confirmationNumbers],
+          segments,
+          email,
+          logEntry,
         }
-      }
-
-      const addedSegs = []
-      for (const seg of segments) {
-        // Dedup key: PNR + route (no date) so a changed route on the same PNR replaces the old one;
-        // fallback to flightNumber + date when there's no PNR
-        const flightKey = confNum
-          ? `${confNum}|${seg.origin}|${seg.destination}`
-          : `${seg.flightNumber}|${seg.date}`
-        if (seenFlightKeys.has(flightKey)) continue
-        seenFlightKeys.add(flightKey)
-
-        const isAlaskaFamily = ['AS','QX','HA'].includes(seg.prefix)
-        const bookingType = isAlaskaFamily ? 'alaska_direct' : 'partner_direct'
-        const fareOption = isAlaskaFamily ? 'economy_std' : 'economy'
-
-        const dist = calculateDistance(seg.origin, seg.destination)
-        const fareOpts = FARE_OPTIONS[bookingType] || []
-        const selectedFare = fareOpts.find(o => o.value === fareOption) || fareOpts[0]
-        const pts = calculateFlightPoints({ earningMethod, distanceMiles: dist || 0, bookingType, fareOption })
-
-        results.push({
-          type: 'flight',
-          flightNumber: seg.flightNumber,
-          origin: seg.origin,
-          destination: seg.destination,
-          date: seg.date,
-          year: parseInt(seg.date.slice(0, 4)),
-          distanceMiles: dist || 0,
-          bookingType,
-          fareOption,
-          fareLabel: selectedFare?.label || '',
-          multiplier: selectedFare?.multiplier || 1,
-          fareSource: 'estimated',
-          statusPoints: pts,
-          confirmationNumber: confNum || null,
-          confirmationNumbers,
-          importedFrom: 'gmail_sync',
-          emailSubject: email.emailSubject || '',
-          emailFrom: email.emailFrom || '',
-          emailHtml: email.emailHtml || '',
-        })
-        addedSegs.push(`${seg.flightNumber} ${seg.origin}→${seg.destination} ${seg.date}`)
-      }
-
-      if (addedSegs.length > 0) {
-        logEntry.disposition = 'added'
-        logEntry.detail = addedSegs.join(' · ')
+        confirmationNumbers.forEach(c => pnrToBooking.set(c, booking))
+        logEntry.disposition = 'pending'
+        debugLog.push(logEntry)
       } else {
-        logEntry.disposition = 'flight_dedup'
-        logEntry.detail = 'All segments already queued from another email this sync'
+        // No PNR — can't group, process immediately using flightNumber+date dedup
+        const addedSegs = []
+        for (const seg of segments) {
+          const flightKey = `${seg.flightNumber}|${seg.date}`
+          if (seenFlightKeys.has(flightKey)) continue
+          seenFlightKeys.add(flightKey)
+          const isAlaskaFamily = ['AS','QX','HA'].includes(seg.prefix)
+          const bookingType = isAlaskaFamily ? 'alaska_direct' : 'partner_direct'
+          const fareOption = isAlaskaFamily ? 'economy_std' : 'economy'
+          const dist = calculateDistance(seg.origin, seg.destination)
+          const fareOpts = FARE_OPTIONS[bookingType] || []
+          const selectedFare = fareOpts.find(o => o.value === fareOption) || fareOpts[0]
+          const pts = calculateFlightPoints({ earningMethod, distanceMiles: dist || 0, bookingType, fareOption })
+          results.push({
+            type: 'flight',
+            flightNumber: seg.flightNumber,
+            origin: seg.origin,
+            destination: seg.destination,
+            date: seg.date,
+            year: parseInt(seg.date.slice(0, 4)),
+            distanceMiles: dist || 0,
+            bookingType,
+            fareOption,
+            fareLabel: selectedFare?.label || '',
+            multiplier: selectedFare?.multiplier || 1,
+            fareSource: 'estimated',
+            statusPoints: pts,
+            confirmationNumber: null,
+            confirmationNumbers: [],
+            importedFrom: 'gmail_sync',
+            emailSubject: email.emailSubject || '',
+            emailFrom: email.emailFrom || '',
+            emailHtml: email.emailHtml || '',
+          })
+          addedSegs.push(`${seg.flightNumber} ${seg.origin}→${seg.destination} ${seg.date}`)
+        }
+        logEntry.disposition = addedSegs.length > 0 ? 'added' : 'flight_dedup'
+        logEntry.detail = addedSegs.length > 0 ? addedSegs.join(' · ') : 'All segments already queued from another email this sync'
+        debugLog.push(logEntry)
       }
-      debugLog.push(logEntry)
     }
+  }
+
+  // ── Final pass: convert bookings to flight results ──────────────────────────
+  // By processing here we use each booking's final accumulated state: the primary
+  // PNR from the oldest email, all PNR codes from every related email, and segments
+  // from the most recent email that had segments.
+  const processedBookings = new Set()
+  for (const booking of pnrToBooking.values()) {
+    if (processedBookings.has(booking)) continue
+    processedBookings.add(booking)
+
+    const { confirmationNumber: primaryPNR, confirmationNumbers, segments, email, logEntry } = booking
+
+    // Reminder check: all final segments already confirmed under any known PNR
+    const matchedExistingPNR = confirmationNumbers.find(c => existingSegmentsByPNR.has(c))
+    if (matchedExistingPNR && isSubset(segments, existingSegmentsByPNR.get(matchedExistingPNR))) {
+      logEntry.disposition = 'reminder'
+      logEntry.detail = `All segments already confirmed under PNR ${matchedExistingPNR}`
+      continue
+    }
+
+    const addedSegs = []
+    for (const seg of segments) {
+      const flightKey = primaryPNR
+        ? `${primaryPNR}|${seg.origin}|${seg.destination}`
+        : `${seg.flightNumber}|${seg.date}`
+      if (seenFlightKeys.has(flightKey)) continue
+      seenFlightKeys.add(flightKey)
+
+      const isAlaskaFamily = ['AS','QX','HA'].includes(seg.prefix)
+      const bookingType = isAlaskaFamily ? 'alaska_direct' : 'partner_direct'
+      const fareOption = isAlaskaFamily ? 'economy_std' : 'economy'
+      const dist = calculateDistance(seg.origin, seg.destination)
+      const fareOpts = FARE_OPTIONS[bookingType] || []
+      const selectedFare = fareOpts.find(o => o.value === fareOption) || fareOpts[0]
+      const pts = calculateFlightPoints({ earningMethod, distanceMiles: dist || 0, bookingType, fareOption })
+
+      results.push({
+        type: 'flight',
+        flightNumber: seg.flightNumber,
+        origin: seg.origin,
+        destination: seg.destination,
+        date: seg.date,
+        year: parseInt(seg.date.slice(0, 4)),
+        distanceMiles: dist || 0,
+        bookingType,
+        fareOption,
+        fareLabel: selectedFare?.label || '',
+        multiplier: selectedFare?.multiplier || 1,
+        fareSource: 'estimated',
+        statusPoints: pts,
+        confirmationNumber: primaryPNR || null,
+        confirmationNumbers,
+        importedFrom: 'gmail_sync',
+        emailSubject: email.emailSubject || '',
+        emailFrom: email.emailFrom || '',
+        emailHtml: email.emailHtml || '',
+      })
+      addedSegs.push(`${seg.flightNumber} ${seg.origin}→${seg.destination} ${seg.date}`)
+    }
+
+    logEntry.disposition = addedSegs.length > 0 ? 'added' : 'flight_dedup'
+    logEntry.detail = addedSegs.length > 0 ? addedSegs.join(' · ') : 'All segments already queued from another email this sync'
   }
 
   const cancelledPNRs = new Set(

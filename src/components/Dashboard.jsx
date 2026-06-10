@@ -131,17 +131,23 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
     })
   }, [user.uid])
 
-  // Track all confirmed activities by PNR across all years and sources (PNR → array, supports multi-leg)
+  // Track all confirmed activities by PNR across all years and sources (PNR → array, supports multi-leg).
+  // Indexed by every code in confirmationNumbers so codeshare alternate PNRs also match.
   const [allActivitiesByPNR, setAllActivitiesByPNR] = useState(new Map())
   useEffect(() => {
     return onSnapshot(collection(db, 'users', user.uid, 'activities'), snap => {
       const byPNR = new Map()
       snap.docs.forEach(d => {
         const data = d.data()
-        if (data.confirmationNumber) {
-          const existing = byPNR.get(data.confirmationNumber) || []
-          byPNR.set(data.confirmationNumber, [...existing, { ...data, id: d.id }])
-        }
+        const act = { ...data, id: d.id }
+        const codes = new Set([
+          data.confirmationNumber,
+          ...(Array.isArray(data.confirmationNumbers) ? data.confirmationNumbers : []),
+        ].filter(Boolean))
+        codes.forEach(code => {
+          const existing = byPNR.get(code) || []
+          byPNR.set(code, [...existing, act])
+        })
       })
       setAllActivitiesByPNR(byPNR)
     })
