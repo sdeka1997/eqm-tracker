@@ -190,7 +190,9 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
     ? `after:${sinceDate.replace(/-/g, '/')}`
     : `after:${new Date(Date.now() - 21 * 86400000).toISOString().slice(0, 10).replace(/-/g, '/')}`
 
-  const query = `(flight OR itinerary OR trip OR reservation OR boarding) -category:promotions -category:social -category:forums ${afterClause}`
+  // -from:me excludes mail you sent (incl. forwards) — Gmail search spans the whole
+  // mailbox, so a flight you forward to someone else would otherwise be treated as yours.
+  const query = `(flight OR itinerary OR trip OR reservation OR boarding) -from:me -category:promotions -category:social -category:forums ${afterClause}`
   const msgIds = await searchMessages(token, query)
 
   const total = msgIds.length
