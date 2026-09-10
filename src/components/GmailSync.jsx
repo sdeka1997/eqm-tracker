@@ -20,7 +20,8 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
   const [errorMsg, setErrorMsg] = useState('')
   const [tokenExpired, setTokenExpired] = useState(false)
   const [progress, setProgress] = useState({ step: '', current: 0, total: 0 })
-  const [summary, setSummary] = useState({ added: 0, cancelled: 0 })
+  const progressRef = useRef({ step: '' })
+  const [summary, setSummary] = useState({ added: 0, cancelled: 0, failedBatches: [] })
   const [debugLog, setDebugLog] = useState([])
   const [debugOpen, setDebugOpen] = useState(false)
   const isDev = window.location.hostname === 'localhost'
@@ -83,9 +84,9 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
     setTokenExpired(false)
 
     try {
-      const { results, debugLog: log } = await syncFlightsFromGmail(token, geminiKey, {
+      const { results, debugLog: log, failedBatches = [] } = await syncFlightsFromGmail(token, geminiKey, {
         earningMethod,
-        onProgress: p => setProgress(p),
+        onProgress: p => { progressRef.current = p; setProgress(p) },
         userName,
         sinceDate,
         existingSegmentsByPNR,
@@ -103,16 +104,20 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
         }
       }
 
-      const now = new Date().toISOString()
-      await onPollComplete(now)
-      setSummary({ added, cancelled })
+      // Advancing lastPoll past emails Gemini never managed to read would skip them
+      // forever on the next sync, so only move the marker on a clean run.
+      if (failedBatches.length === 0) {
+        await onPollComplete(new Date().toISOString())
+      }
+      setSummary({ added, cancelled, failedBatches })
       setState('done')
     } catch (err) {
       if (err.message?.includes('401')) {
         setTokenExpired(true)
         setState('error')
       } else {
-        setErrorMsg(err.message || 'Something went wrong.')
+        const where = progressRef.current.step ? ` (during: ${progressRef.current.step})` : ''
+        setErrorMsg(`${err.message || 'Something went wrong.'}${where}`)
         setState('error')
       }
     }
@@ -283,6 +288,7 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
       no_segments:         'bg-slate-100 text-slate-500',
       reminder:            'bg-blue-50 text-blue-600',
       flight_dedup:        'bg-slate-100 text-slate-500',
+      batch_failed:        'bg-red-100 text-red-700',
     }
     const dispositionLabel = {
       added:               'Added',
@@ -293,6 +299,7 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
       no_segments:         'Skipped (no flights)',
       reminder:            'Skipped (already confirmed)',
       flight_dedup:        'Skipped (duplicate flight)',
+      batch_failed:        'Not read (Gemini error)',
     }
     return (
       <div className="space-y-4">
@@ -304,6 +311,18 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
           )}
           <p className="text-sm text-slate-500">Review and confirm each one on your dashboard</p>
         </div>
+        {summary.failedBatches?.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 space-y-1">
+            <p className="font-semibold">
+              {summary.failedBatches.reduce((n, b) => n + b.emailCount, 0)} emails could not be read
+            </p>
+            <p className="text-xs">
+              Gemini failed on {summary.failedBatches.length} of {summary.failedBatches[0].batchTotal} batches.
+              Your last-polled date was left unchanged, so running the sync again will retry them.
+            </p>
+            <p className="text-xs text-amber-700/80 break-words">{summary.failedBatches[0].message}</p>
+          </div>
+        )}
         {isDev && debugLog.length > 0 && (
           <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
             <button
