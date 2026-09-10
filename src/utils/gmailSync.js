@@ -61,12 +61,36 @@ function prepareHtmlForGemini(html) {
     .trim()
 }
 
+// ── Network ───────────────────────────────────────────────────────────────────
+
+// A fetch that never reaches the server throws a bare TypeError ("Load failed" in
+// Safari, "Failed to fetch" in Chrome) with no clue which call died. Label it, and
+// retry twice — one blip shouldn't discard a sync that already cost minutes of work.
+async function fetchLabeled(url, options, label) {
+  let lastErr
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await fetch(url, options)
+    } catch (e) {
+      lastErr = e
+      if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)))
+    }
+  }
+  const host = new URL(url).host
+  throw new Error(
+    `${label} — could not reach ${host} (${lastErr?.message || 'network error'}). ` +
+    `Check your connection, VPN, or a content blocker blocking that domain.`
+  )
+}
+
 // ── Gmail API ─────────────────────────────────────────────────────────────────
 
 async function gmailGet(path, token) {
-  const res = await fetch(`https://www.googleapis.com/gmail/v1${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
+  const res = await fetchLabeled(
+    `https://www.googleapis.com/gmail/v1${path}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+    `Gmail request failed (${path.split('?')[0]})`
+  )
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new Error(`Gmail API error ${res.status}: ${body?.error?.message || res.statusText}`)
@@ -89,8 +113,13 @@ async function searchMessages(token, query) {
 // ── Gemini parsing ────────────────────────────────────────────────────────────
 
 const BATCH_SIZE = 10
+// Tried in order. A 429/503 overload on one model falls through to the next
+// rather than failing the batch — when one flash model is congested the others
+// usually are not. All three are confirmed available on a standard AI Studio key.
+const GEMINI_MODELS = ['gemini-3.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash']
+const GEMINI_RETRIES_PER_MODEL = 2
 
-async function extractFlightsBatch(emails, geminiKey, { userName } = {}) {
+async function extractFlightsBatch(emails, geminiKey, { userName, onRetry } = {}) {
   const numbered = emails.map((e, i) =>
     `--- EMAIL ${i} ---\nFrom: ${e.emailFrom}\nSubject: ${e.emailSubject}\n${prepareHtmlForGemini(e.emailHtml) || e.text}`
   ).join('\n\n')
@@ -118,30 +147,53 @@ Rules:
 
 ${numbered}`
 
-  let res, attempts = 0
+  const body = JSON.stringify({
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { responseMimeType: 'application/json' },
+  })
+  const sizeKB = Math.round(body.length / 1024)
+
+  // 429 (rate limit) and 503 (model overloaded) are both transient. Honour the
+  // server's own "retry in Xs" when it gives one; otherwise back off exponentially
+  // with jitter, so a busy model gets progressively more room instead of a flat wait.
+  let res, modelIdx = 0, attempts = 0
   while (true) {
-    res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`,
+    const model = GEMINI_MODELS[modelIdx]
+    res = await fetchLabeled(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: 'application/json' },
-        }),
-      }
+        body,
+      },
+      `Gemini request failed (${model}, ${emails.length} emails, ${sizeKB} KB)`
     )
     if (res.ok) break
+
     const err = await res.json().catch(() => ({}))
     const msg = err?.error?.message || res.statusText
-    if ((res.status === 429 || res.status === 503) && attempts < 3) {
+    const transient = res.status === 429 || res.status === 503
+
+    if (transient && attempts < GEMINI_RETRIES_PER_MODEL) {
       const retryMatch = msg.match(/retry in ([\d.]+)s/i)
-      const waitMs = retryMatch ? Math.ceil(parseFloat(retryMatch[1])) * 1000 + 1000 : 60000
-      await new Promise(r => setTimeout(r, waitMs))
+      const waitMs = retryMatch
+        ? Math.ceil(parseFloat(retryMatch[1])) * 1000 + 1000
+        : 15000 * 2 ** attempts + Math.floor(Math.random() * 3000)
       attempts++
+      onRetry?.({ model, status: res.status, waitMs })
+      await new Promise(r => setTimeout(r, waitMs))
       continue
     }
-    throw new Error(`Gemini API error ${res.status}: ${msg}`)
+
+    // This model stayed busy through its retries — move to the next one.
+    if (transient && modelIdx < GEMINI_MODELS.length - 1) {
+      modelIdx++
+      attempts = 0
+      onRetry?.({ model: GEMINI_MODELS[modelIdx], status: res.status, switched: true })
+      continue
+    }
+
+    throw new Error(`Gemini API error ${res.status} (${model}): ${msg}`)
   }
 
   const data = await res.json()
@@ -227,6 +279,7 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
   const seenFlightKeys = new Set()
   const results = []
   const debugLog = []
+  const failedBatches = []
 
   // Maps any PNR code → the mutable booking object it belongs to. Allows later
   // emails to accumulate new PNR codes and overwrite segments on the same booking.
@@ -239,7 +292,36 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
     const batchTotal = Math.ceil(emails.length / BATCH_SIZE)
     onProgress?.({ step: `Parsing emails (batch ${batchNum}/${batchTotal})…`, current: i, total: emails.length })
 
-    const batchResults = await extractFlightsBatch(batch, geminiKey, { userName })
+    let batchResults
+    try {
+      batchResults = await extractFlightsBatch(batch, geminiKey, {
+        userName,
+        onRetry: ({ model, status, waitMs, switched }) => onProgress?.({
+          step: switched
+            ? `Gemini busy (${status}) — switching to ${model}…`
+            : `Gemini busy (${status}) — retrying ${model} in ${Math.round(waitMs / 1000)}s…`,
+          current: i,
+          total: emails.length,
+        }),
+      })
+    } catch (e) {
+      // One overloaded batch must not discard the work of every other batch.
+      // Record it, keep going, and let the caller decide what to do about the gap.
+      failedBatches.push({ batchNum, batchTotal, emailCount: batch.length, message: e.message })
+      for (const email of batch) {
+        debugLog.push({
+          subject: email.emailSubject || '(no subject)',
+          from: email.emailFrom || '',
+          date: email.internalDate ? new Date(email.internalDate).toLocaleDateString() : '?',
+          cancelled: false,
+          confirmationNumber: null,
+          segments: [],
+          disposition: 'batch_failed',
+          detail: `Batch ${batchNum}/${batchTotal} failed — ${e.message}`,
+        })
+      }
+      continue
+    }
 
     for (let j = 0; j < batch.length; j++) {
       const email = batch[j]
@@ -450,5 +532,5 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
     if (b.type === 'cancellation') return -1
     return (a.date || '').localeCompare(b.date || '')
   })
-  return { results: filtered, debugLog }
+  return { results: filtered, debugLog, failedBatches }
 }

@@ -19,7 +19,7 @@ Fix: Extract a `<DialogFooter onCancel onConfirm cancelLabel confirmLabel disabl
 ---
 
 ### 5 near-identical `onSnapshot` dedup watchers in Dashboard.jsx
-`allTellerIds`, `allFlightyIds`, `allGmailFlightKeys`, `allActivitiesByPNR`, and the Teller connection watcher all follow the same `useEffect → query → onSnapshot → setState` pattern. Any change to the pattern (error handling, cleanup) must be applied 5 times.
+`allPlaidIds`, `allFlightyIds`, `allGmailFlightKeys`, `allActivitiesByPNR`, and the card connection watcher all follow the same `useEffect → query → onSnapshot → setState` pattern. Any change to the pattern (error handling, cleanup) must be applied 5 times.
 
 Fix: Extract a `useDeduplicationTracker(uid, collectionPath, filterFn, mapFn)` hook.
 
