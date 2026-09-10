@@ -9,7 +9,7 @@ import FlightForm from './FlightForm'
 import CardSpendForm from './CardSpendForm'
 import GmailSync from './GmailSync'
 import FlightyImport from './FlightyImport'
-import TellerSync from './TellerSync'
+import PlaidSync from './PlaidSync'
 import CardSpendSection from './CardSpendSection'
 import MiscSection from './MiscSection'
 import ReviewQueue from './ReviewQueue'
@@ -21,7 +21,7 @@ const EARNING_METHOD_KEY = 'atmos_earning_method'
 
 export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGmailToken }) {
   const [year, setYear] = useState(CURRENT_YEAR)
-  const [modal, setModal] = useState(null) // null | 'flight' | 'card' | 'calendar' | 'teller' | 'flighty'
+  const [modal, setModal] = useState(null) // null | 'flight' | 'card' | 'calendar' | 'plaid' | 'flighty'
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(null) // null | 'flights' | 'card' | 'misc'
   const [showProfileMenu, setShowProfileMenu] = useState(false)
   const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false)
@@ -85,23 +85,25 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
     }
   }
 
-  // Watch Teller connection state
-  const [tellerConnected, setTellerConnected] = useState(false)
+  // Watch card connection state
   useEffect(() => {
     return onSnapshot(doc(db, 'users', user.uid), snap => {
-      setTellerConnected(!!snap.data()?.teller?.accessToken)
+      setPlaidConnected(!!snap.data()?.plaid?.accessToken)
     })
   }, [user.uid])
 
-  // Track all imported Teller IDs across all years for deduplication
-  const [allTellerIds, setAllTellerIds] = useState(new Set())
+  // Watch Plaid connection state
+  const [plaidConnected, setPlaidConnected] = useState(false)
+
+  // Track all imported Plaid IDs across all years for deduplication
+  const [allPlaidIds, setAllPlaidIds] = useState(new Set())
   useEffect(() => {
     const q = query(
       collection(db, 'users', user.uid, 'activities'),
-      where('source', '==', 'teller'),
+      where('source', '==', 'plaid'),
     )
     return onSnapshot(q, snap => {
-      setAllTellerIds(new Set(snap.docs.map(d => d.data().tellerTxId).filter(Boolean)))
+      setAllPlaidIds(new Set(snap.docs.map(d => d.data().plaidTxId).filter(Boolean)))
     })
   }, [user.uid])
 
@@ -436,7 +438,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
             )}
 
             {/* Card spend */}
-            <CardSpendSection activities={activities} onDelete={removeActivity} onUpdate={updateActivity} onDeleteAll={() => setConfirmDeleteAll('card')} onAddManual={() => setModal('card')} onSync={() => setModal('teller')} tellerConnected={tellerConnected} />
+            <CardSpendSection activities={activities} onDelete={removeActivity} onUpdate={updateActivity} onDeleteAll={() => setConfirmDeleteAll('card')} onAddManual={() => setModal('card')} onSync={() => setModal('plaid')} cardConnected={plaidConnected} />
             <MiscSection activities={activities} onAdd={addActivity} onDelete={removeActivity} />
 
 
@@ -461,7 +463,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
               <h2 className="font-semibold text-slate-800">
                 {modal === 'flight'     && '✈️ Add Flight'}
                 {modal === 'card'       && '💳 Card Spend'}
-                {modal === 'teller'     && '💳 Sync Atmos Card'}
+                {modal === 'plaid'      && '💳 Sync Atmos Card'}
                 {modal === 'calendar'   && '📧 Sync from Gmail'}
                 {modal === 'flighty'    && '✈️ Import Flighty CSV'}
               </h2>
@@ -482,11 +484,18 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                   onDone={() => setModal(null)}
                 />
               )}
-              {modal === 'teller' && (
-                <TellerSync
+              {modal === 'plaid' && (
+                <PlaidSync
                   uid={user.uid}
                   year={year}
-                  existingTellerIds={allTellerIds}
+                  existingPlaidIds={allPlaidIds}
+                  latestCardDate={
+                    activities
+                      .filter(a => a.type === 'card_spend' && a.date)
+                      .map(a => a.date)
+                      .sort()
+                      .pop() || ''
+                  }
                   onAddActivity={async data => addActivity(data)}
                   onCancel={() => setModal(null)}
                 />

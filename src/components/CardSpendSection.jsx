@@ -51,7 +51,7 @@ function EditDateModal({ activity, onSave, onClose }) {
   )
 }
 
-export default function CardSpendSection({ activities, onDelete, onUpdate, onDeleteAll, onAddManual, onSync, tellerConnected }) {
+export default function CardSpendSection({ activities, onDelete, onUpdate, onDeleteAll, onAddManual, onSync, cardConnected }) {
   const [expanded, setExpanded] = useState(null)
   const [editingActivity, setEditingActivity] = useState(null)
 
@@ -77,7 +77,7 @@ export default function CardSpendSection({ activities, onDelete, onUpdate, onDel
               <h2 className="font-semibold text-slate-800">Card Spend</h2>
               <button onClick={onAddManual} className="text-xs text-alaska-blue hover:underline font-medium">+ Add</button>
             </div>
-            {onSync && (cardItems.length > 0 || tellerConnected) && (
+            {onSync && (cardItems.length > 0 || cardConnected) && (
               <button
                 onClick={onSync}
                 className="text-xs border border-slate-200 text-slate-500 hover:border-alaska-teal hover:text-alaska-teal px-2.5 py-0.5 rounded-full transition-colors"
@@ -102,7 +102,7 @@ export default function CardSpendSection({ activities, onDelete, onUpdate, onDel
         {cardItems.length === 0 ? (
           <div className="text-center py-8 space-y-3">
             <p className="text-sm text-slate-400">No transactions yet</p>
-            {onSync && !tellerConnected && (
+            {onSync && !cardConnected && (
               <button
                 onClick={onSync}
                 className="bg-alaska-teal hover:bg-teal-700 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors"
