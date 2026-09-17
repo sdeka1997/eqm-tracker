@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { calculateFlightPoints, FARE_OPTIONS, formatMonth, groupByMonth, isFlight } from '../utils/calculations'
+import { calculateFlightPoints, countsTowardStatus, FARE_OPTIONS, formatMonth, groupByMonth, isFlight } from '../utils/calculations'
 import FlightFields from './FlightFields'
 import Modal from './Modal'
 import { useEscapeClose } from '../hooks/useEscapeClose'
@@ -23,7 +23,7 @@ function FlightEditModal({ flight, earningMethod, onSave, onClose }) {
       bookingType,
       fareOption,
       fareLabel: selectedFare?.label || '',
-      multiplier: selectedFare?.multiplier || 1,
+      multiplier: selectedFare?.multiplier ?? 1,
       statusPoints: livePoints,
       confirmationNumber: pnr || null,
       flightNumber: flightNumber.toUpperCase().trim() || null,
@@ -145,7 +145,7 @@ export default function ActivityLog({ activities, earningMethod, onDelete, onUpd
       <div className="space-y-2">
         {months.map(month => {
           const items = byMonth[month]
-          const monthSP = items.reduce((sum, f) => sum + (f.statusPoints || 0), 0)
+          const monthSP = items.reduce((sum, f) => sum + (countsTowardStatus(f) ? (f.statusPoints || 0) : 0), 0)
           const isDefault = expanded.has('__default__')
           const isOpen = isDefault ? month >= currentMonth : expanded.has(month)
 
@@ -179,14 +179,30 @@ export default function ActivityLog({ activities, earningMethod, onDelete, onUpd
 
               {isOpen && (
                 <div className="border-t border-slate-100 divide-y divide-slate-50">
-                  {items.map(a => (
+                  {items.map(a => {
+                    const isCounted = countsTowardStatus(a)
+                    const toggleCounting = () => onUpdate(a.id, { countsTowardStatus: !isCounted })
+
+                    return (
                     <div
                       key={a.id}
                       onClick={() => setEditing(a.id)}
-                      className={`cursor-pointer group transition-colors hover:bg-slate-50${a.possibleCancellation ? ' pb-2.5' : ''}`}
+                      title="Click to edit this flight"
+                      className={`cursor-pointer group transition-colors ${
+                        isCounted ? 'hover:bg-slate-50' : 'bg-slate-100/70 hover:bg-slate-100'
+                      }${a.possibleCancellation ? ' pb-2.5' : ''}`}
                     >
                       <div className="flex items-center gap-3 px-4 py-2.5">
-                        <span className="text-base">✈️</span>
+                        <button
+                          onClick={e => { e.stopPropagation(); toggleCounting() }}
+                          aria-pressed={!isCounted}
+                          className={`text-base rounded-full p-1 transition-colors ${
+                            isCounted ? 'hover:bg-slate-100' : 'bg-slate-200 opacity-60 hover:opacity-100'
+                          }`}
+                          title={isCounted ? 'Stop counting this flight' : 'Count this flight'}
+                        >
+                          ✈️
+                        </button>
                         <div className="flex-1 min-w-0">
                           <div className="text-xs font-semibold text-slate-800">
                             {a.origin} → {a.destination}
@@ -196,16 +212,17 @@ export default function ActivityLog({ activities, earningMethod, onDelete, onUpd
                           <div className="text-xs text-slate-400">
                             {a.date}
                             {a.distanceMiles ? ` · ${a.distanceMiles.toLocaleString()} mi` : ''}
+                            {!isCounted && <span className="ml-1.5 font-medium">· Not counting</span>}
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           <div className="text-right">
-                            <div className="text-xs font-bold text-alaska-blue">+{(a.statusPoints || 0).toLocaleString()}</div>
+                            <div className={`text-xs font-bold ${isCounted ? 'text-alaska-blue' : 'text-slate-400'}`}>+{(a.statusPoints || 0).toLocaleString()}</div>
                             <div className="text-xs text-slate-400">SP</div>
                           </div>
                           <button
                             onClick={e => { e.stopPropagation(); onDelete(a.id) }}
-                            className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-300 hover:text-red-400 text-lg leading-none"
+                            className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity text-slate-300 hover:text-red-400 text-lg leading-none"
                             title="Delete"
                           >
                             ×
@@ -235,7 +252,8 @@ export default function ActivityLog({ activities, earningMethod, onDelete, onUpd
                         </div>
                       )}
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>

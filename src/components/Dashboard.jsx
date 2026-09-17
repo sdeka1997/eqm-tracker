@@ -14,7 +14,7 @@ import CardSpendSection from './CardSpendSection'
 import MiscSection from './MiscSection'
 import ReviewQueue from './ReviewQueue'
 import { usePending } from '../hooks/usePending'
-import { getCurrentTier, getNextTier, EARNING_METHODS, CURRENT_YEAR, calculateCardSpendPoints, isFlight, isCardItem, getToday } from '../utils/calculations'
+import { getCurrentTier, getNextTier, EARNING_METHODS, CURRENT_YEAR, calculateCardSpendPoints, countsTowardStatus, isFlight, isCardItem, getToday } from '../utils/calculations'
 import Spinner from './Spinner'
 
 const EARNING_METHOD_KEY = 'atmos_earning_method'
@@ -290,8 +290,8 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
               {(() => {
                 const today = getToday()
 
-                const flightEarned = activities.filter(a => isFlight(a) && (a.date || '') <= today).reduce((s, a) => s + (a.statusPoints || 0), 0)
-                const flightPlanned = activities.filter(a => isFlight(a) && (a.date || '') > today).reduce((s, a) => s + (a.statusPoints || 0), 0)
+                const flightEarned = activities.filter(a => isFlight(a) && countsTowardStatus(a) && (a.date || '') <= today).reduce((s, a) => s + (a.statusPoints || 0), 0)
+                const flightPlanned = activities.filter(a => isFlight(a) && countsTowardStatus(a) && (a.date || '') > today).reduce((s, a) => s + (a.statusPoints || 0), 0)
 
                 const cardEarned = calculateCardSpendPoints(activities.filter(a => (a.date || '') <= today))
                 const cardPlanned = calculateCardSpendPoints(activities.filter(a => (a.date || '') > today))

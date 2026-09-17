@@ -5,6 +5,7 @@ import {
   FARE_OPTIONS,
   EARNING_METHODS,
   getToday,
+  isAwardBooking,
 } from '../utils/calculations'
 import { INPUT_CLS, LABEL_CLS } from '../utils/styles'
 import FlightFields from './FlightFields'
@@ -94,7 +95,7 @@ export default function FlightForm({ onSubmit, earningMethod, onCancel }) {
       bookingType: form.bookingType,
       fareOption: form.fareOption,
       fareLabel: selectedFare?.label || '',
-      multiplier: selectedFare?.multiplier || 1,
+      multiplier: selectedFare?.multiplier ?? 1,
       distanceMiles: effectiveDistance,
       ticketPrice: parseFloat(form.ticketPrice) || 0,
       confirmationNumber: form.confirmationNumber || null,
@@ -183,9 +184,13 @@ export default function FlightForm({ onSubmit, earningMethod, onCancel }) {
         hideDistance
       />
 
-      {form.bookingType === 'award' && (
+      {isAwardBooking(form.bookingType) && (
         <div className="bg-slate-50 rounded-lg px-3 py-2 text-xs text-slate-500">
-          Award tickets always earn <strong>1 SP/mile</strong> regardless of cabin or airline.
+          {form.bookingType === 'partner_award' ? (
+            <>Partner Award tickets earn <strong>0 Status Points</strong>.</>
+          ) : (
+            <>Atmos Award tickets earn <strong>1 SP/mile</strong> regardless of cabin or airline.</>
+          )}
         </div>
       )}
 

@@ -87,7 +87,7 @@ export function parseFlightyCSV(csvText, { earningMethod }) {
       bookingType,
       fareOption,
       fareLabel: selectedFare?.label || '',
-      multiplier: selectedFare?.multiplier || 1,
+      multiplier: selectedFare?.multiplier ?? 1,
       fareSource: cabinClass ? 'flighty' : 'estimated',
       statusPoints: pts,
       confirmationNumber: pnr || null,

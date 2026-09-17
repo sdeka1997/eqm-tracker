@@ -2,6 +2,7 @@ const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct'
 
 export const isFlight = (a) => a.type === 'flight'
 export const isCardItem = (a) => a.type === 'card_spend' || a.type === 'anniversary_bonus'
+export const countsTowardStatus = (a) => !isFlight(a) || a.countsTowardStatus !== false
 export const getToday = () => new Date().toISOString().slice(0, 10)
 
 export function formatMonth(yearMonth) {
@@ -24,7 +25,8 @@ export const BOOKING_TYPE_SHORT = {
   hawaiian_direct:    'Hawaiian (via Hawaiian)',
   partner_via_alaska: 'Partner (via Alaska)',
   partner_direct:     'Partner (direct)',
-  award:              'Award',
+  award:              'Atmos Award',
+  partner_award:      'Partner Award',
 }
 
 export const TIERS = [
@@ -48,7 +50,8 @@ export const BOOKING_TYPES = [
   { value: 'hawaiian_direct',    label: 'Hawaiian (via Hawaiian)' },
   { value: 'partner_via_alaska', label: 'Partner (via Alaska)' },
   { value: 'partner_direct',     label: 'Partner (direct)' },
-  { value: 'award',              label: 'Award' },
+  { value: 'award',              label: 'Atmos Award' },
+  { value: 'partner_award',      label: 'Partner Award' },
 ]
 
 // Fare options per booking type: { value, label, multiplier }
@@ -87,25 +90,34 @@ export const FARE_OPTIONS = {
     { value: 'first',         label: 'First',           multiplier: 1.50 },
   ],
   award: [
-    { value: 'award',         label: 'Award ticket',    multiplier: 1.00 },
+    { value: 'award',         label: 'Atmos Award ticket', multiplier: 1.00 },
+  ],
+  partner_award: [
+    { value: 'partner_award', label: 'Partner Award ticket', multiplier: 0.00 },
   ],
 }
 
 export const SP_MINIMUM = 500
 
+export function isAwardBooking(bookingType) {
+  return bookingType === 'award' || bookingType === 'partner_award'
+}
+
 export function getMultiplier(bookingType, fareOption) {
   if (bookingType === 'award') return 1.0
+  if (bookingType === 'partner_award') return 0.0
   const options = FARE_OPTIONS[bookingType] || []
   return options.find(o => o.value === fareOption)?.multiplier ?? 1.0
 }
 
 export function calculateFlightPoints({ earningMethod, distanceMiles, ticketPrice, bookingType, fareOption }) {
+  const multiplier = getMultiplier(bookingType, fareOption)
+  if (multiplier === 0) return 0
   if (earningMethod === 'segment') return SP_MINIMUM
   if (earningMethod === 'spend') return Math.floor((ticketPrice || 0) * 5)
 
   // Distance method
   const miles = distanceMiles || 0
-  const multiplier = getMultiplier(bookingType, fareOption)
   const raw = Math.floor(miles * multiplier)
   return Math.max(SP_MINIMUM, raw)
 }

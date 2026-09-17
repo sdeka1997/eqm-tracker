@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { calculateFlightPoints, FARE_OPTIONS, BOOKING_TYPE_SHORT, isFlight } from '../utils/calculations'
+import { calculateFlightPoints, FARE_OPTIONS, BOOKING_TYPE_SHORT, isAwardBooking, isFlight } from '../utils/calculations'
 import FlightFields from './FlightFields'
 import Modal from './Modal'
 import { useEscapeClose } from '../hooks/useEscapeClose'
@@ -47,7 +47,7 @@ function FlightReviewCard({ flight, earningMethod, onConfirm, onSkip }) {
       bookingType,
       fareOption,
       fareLabel: selectedFare?.label || '',
-      multiplier: selectedFare?.multiplier || 1,
+      multiplier: selectedFare?.multiplier ?? 1,
       distanceMiles,
       statusPoints: livePoints,
       confirmationNumber: pnr || null,
@@ -178,7 +178,7 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
     ? calculateFlightPoints({ earningMethod, distanceMiles, bookingType, fareOption })
     : (item.statusPoints || 0)
 
-  const needsFareOption = isFlightItem && !!bookingType && bookingType !== 'award'
+  const needsFareOption = isFlightItem && !!bookingType && !isAwardBooking(bookingType)
   const canConfirm = !isFlightItem || (
     !!bookingType &&
     (!needsFareOption || !!fareOption) &&
@@ -206,7 +206,7 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
   function handleConfirmTap() {
     if (!canConfirm) { setShowErrors(true); return }
     if (isFlightItem) {
-      onConfirm({ bookingType, fareOption, fareLabel: selectedFare?.label || '', multiplier: selectedFare?.multiplier || 1, distanceMiles, statusPoints: livePoints, confirmationNumber: pnr || null })
+      onConfirm({ bookingType, fareOption, fareLabel: selectedFare?.label || '', multiplier: selectedFare?.multiplier ?? 1, distanceMiles, statusPoints: livePoints, confirmationNumber: pnr || null })
     } else {
       onConfirm({})
     }

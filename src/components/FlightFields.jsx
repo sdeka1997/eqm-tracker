@@ -1,4 +1,4 @@
-import { BOOKING_TYPES, FARE_OPTIONS } from '../utils/calculations'
+import { BOOKING_TYPES, FARE_OPTIONS, isAwardBooking } from '../utils/calculations'
 import { INPUT_CLS, INPUT_CLS_SM, LABEL_CLS } from '../utils/styles'
 
 const sizeClass = { sm: INPUT_CLS_SM, md: INPUT_CLS }
@@ -22,7 +22,7 @@ export default function FlightFields({
 
   function handleBookingTypeChange(bt) {
     onBookingTypeChange(bt)
-    onFareOptionChange('')
+    onFareOptionChange(isAwardBooking(bt) ? FARE_OPTIONS[bt][0].value : '')
   }
 
   return (
@@ -54,7 +54,7 @@ export default function FlightFields({
         </select>
       </div>
 
-      {bookingType && bookingType !== 'award' && (
+      {bookingType && !isAwardBooking(bookingType) && (
         <div>
           <label className={lbl}>Fare class</label>
           <select
