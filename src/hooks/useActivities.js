@@ -4,7 +4,7 @@ import {
   query, where, serverTimestamp,
 } from 'firebase/firestore'
 import { db } from '../firebase'
-import { calculateCardSpendPoints, isCardItem, getToday } from '../utils/calculations'
+import { calculateCardSpendPoints, countsTowardStatus, isCardItem, getToday } from '../utils/calculations'
 
 export function useActivities(uid, year) {
   const [activities, setActivities] = useState([])
@@ -61,7 +61,7 @@ export function useActivities(uid, year) {
 
   function calcPoints(acts) {
     const nonCard = acts
-      .filter(a => !isCardItem(a))
+      .filter(a => !isCardItem(a) && countsTowardStatus(a))
       .reduce((sum, a) => sum + (a.statusPoints || 0), 0)
     return nonCard + calculateCardSpendPoints(acts)
   }

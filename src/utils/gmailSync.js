@@ -112,12 +112,34 @@ async function searchMessages(token, query) {
 
 // ── Gemini parsing ────────────────────────────────────────────────────────────
 
-const BATCH_SIZE = 10
-// Tried in order. A 429/503 overload on one model falls through to the next
-// rather than failing the batch — when one flash model is congested the others
-// usually are not. All three are confirmed available on a standard AI Studio key.
-const GEMINI_MODELS = ['gemini-3.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash']
-const GEMINI_RETRIES_PER_MODEL = 2
+const BATCH_SIZE = 5
+const GEMINI_TIMEOUT_MS = 60000
+// Tried in order. Use explicit stable model IDs so an alias cannot silently move
+// traffic to a congested or preview model. Flash-Lite is sufficient for this
+// structured extraction task; full Flash remains available as the fallback.
+const GEMINI_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.6-flash']
+const GEMINI_RETRIES_PER_MODEL = 1
+
+async function fetchGeminiWithTimeout(url, options, label) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS)
+
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } catch (cause) {
+    const timedOut = cause?.name === 'AbortError'
+    const error = new Error(
+      timedOut
+        ? `${label} — timed out after ${GEMINI_TIMEOUT_MS / 1000} seconds`
+        : `${label} — network error (${cause?.message || 'request failed'})`
+    )
+    error.status = timedOut ? 408 : 0
+    error.reason = timedOut ? 'timed out' : 'network error'
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
 async function extractFlightsBatch(emails, geminiKey, { userName, onRetry } = {}) {
   const numbered = emails.map((e, i) =>
@@ -153,47 +175,75 @@ ${numbered}`
   })
   const sizeKB = Math.round(body.length / 1024)
 
-  // 429 (rate limit) and 503 (model overloaded) are both transient. Honour the
-  // server's own "retry in Xs" when it gives one; otherwise back off exponentially
-  // with jitter, so a busy model gets progressively more room instead of a flat wait.
+  // Rate limits and overloads get one short retry. A hung request is aborted and
+  // switches models immediately instead of leaving the sync spinner up forever.
   let res, modelIdx = 0, attempts = 0
   while (true) {
     const model = GEMINI_MODELS[modelIdx]
-    res = await fetchLabeled(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body,
-      },
-      `Gemini request failed (${model}, ${emails.length} emails, ${sizeKB} KB)`
-    )
-    if (res.ok) break
+    let status = 0
+    let msg = ''
+    let reason = 'network error'
+    let retryable = false
+    let switchable = false
 
-    const err = await res.json().catch(() => ({}))
-    const msg = err?.error?.message || res.statusText
-    const transient = res.status === 429 || res.status === 503
+    try {
+      res = await fetchGeminiWithTimeout(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+        },
+        `Gemini request failed (${model}, ${emails.length} emails, ${sizeKB} KB)`
+      )
+      if (res.ok) break
 
-    if (transient && attempts < GEMINI_RETRIES_PER_MODEL) {
+      const err = await res.json().catch(() => ({}))
+      status = res.status
+      msg = err?.error?.message || res.statusText
+      retryable = status === 429 || status === 503
+      switchable = retryable || status === 404
+      reason = status === 429
+        ? 'rate limited'
+        : status === 404
+          ? 'model unavailable'
+          : status === 503
+            ? 'busy'
+            : 'request failed'
+    } catch (error) {
+      status = error.status || 0
+      msg = error.message
+      reason = error.reason || 'network error'
+      switchable = true
+    }
+
+    if (retryable && attempts < GEMINI_RETRIES_PER_MODEL) {
       const retryMatch = msg.match(/retry in ([\d.]+)s/i)
       const waitMs = retryMatch
         ? Math.ceil(parseFloat(retryMatch[1])) * 1000 + 1000
-        : 15000 * 2 ** attempts + Math.floor(Math.random() * 3000)
+        : 5000 * 2 ** attempts + Math.floor(Math.random() * 2000)
       attempts++
-      onRetry?.({ model, status: res.status, waitMs })
+      onRetry?.({ model, status, waitMs, reason })
       await new Promise(r => setTimeout(r, waitMs))
       continue
     }
 
-    // This model stayed busy through its retries — move to the next one.
-    if (transient && modelIdx < GEMINI_MODELS.length - 1) {
+    // Removed, overloaded, timed-out, and unreachable models fall through when a
+    // supported fallback remains. Validation/auth failures surface immediately.
+    if (switchable && modelIdx < GEMINI_MODELS.length - 1) {
       modelIdx++
       attempts = 0
-      onRetry?.({ model: GEMINI_MODELS[modelIdx], status: res.status, switched: true })
+      onRetry?.({
+        model: GEMINI_MODELS[modelIdx],
+        status,
+        switched: true,
+        reason,
+      })
       continue
     }
 
-    throw new Error(`Gemini API error ${res.status} (${model}): ${msg}`)
+    if (status) throw new Error(`Gemini API error ${status} (${model}): ${msg}`)
+    throw new Error(msg || `Gemini request failed (${model})`)
   }
 
   const data = await res.json()
@@ -296,13 +346,16 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
     try {
       batchResults = await extractFlightsBatch(batch, geminiKey, {
         userName,
-        onRetry: ({ model, status, waitMs, switched }) => onProgress?.({
-          step: switched
-            ? `Gemini busy (${status}) — switching to ${model}…`
-            : `Gemini busy (${status}) — retrying ${model} in ${Math.round(waitMs / 1000)}s…`,
-          current: i,
-          total: emails.length,
-        }),
+        onRetry: ({ model, status, waitMs, switched, reason }) => {
+          const statusSuffix = status ? ` (${status})` : ''
+          onProgress?.({
+            step: switched
+              ? `Gemini ${reason}${statusSuffix} — switching to ${model}…`
+              : `Gemini ${reason}${statusSuffix} — retrying ${model} in ${Math.round(waitMs / 1000)}s…`,
+            current: i,
+            total: emails.length,
+          })
+        },
       })
     } catch (e) {
       // One overloaded batch must not discard the work of every other batch.
@@ -432,7 +485,7 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
             bookingType,
             fareOption,
             fareLabel: selectedFare?.label || '',
-            multiplier: selectedFare?.multiplier || 1,
+            multiplier: selectedFare?.multiplier ?? 1,
             fareSource: 'estimated',
             statusPoints: pts,
             confirmationNumber: null,
@@ -497,7 +550,7 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
         bookingType,
         fareOption,
         fareLabel: selectedFare?.label || '',
-        multiplier: selectedFare?.multiplier || 1,
+        multiplier: selectedFare?.multiplier ?? 1,
         fareSource: 'estimated',
         statusPoints: pts,
         confirmationNumber: primaryPNR || null,

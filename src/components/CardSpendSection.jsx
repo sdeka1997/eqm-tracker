@@ -137,7 +137,7 @@ export default function CardSpendSection({ activities, onDelete, onUpdate, onDel
                     )}
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-sm font-bold text-alaska-blue">+{monthSP.toLocaleString()} SP</span>
+                    <span className="text-sm font-bold text-alaska-blue">{monthSP > 0 ? '+' : ''}{monthSP.toLocaleString()} SP</span>
                     <span className="text-slate-300 text-xs">{isOpen ? '▲' : '▼'}</span>
                   </div>
                 </button>
