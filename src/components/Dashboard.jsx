@@ -511,13 +511,12 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                       for (const act of allActivitiesByPNR.get(data.confirmationNumber)) {
                         await removeActivity(act.id)
                       }
-                      await addPending(data, {})
-                    } else {
-                      await addPending(data, {
-                        existingFlightKeys: allGmailFlightKeys,
-                        existingPNRs: new Set(allActivitiesByPNR.keys()),
-                      })
+                      return addPending(data, {})
                     }
+                    return addPending(data, {
+                      existingFlightKeys: allGmailFlightKeys,
+                      existingPNRs: new Set(allActivitiesByPNR.keys()),
+                    })
                   }}
                   onFlagCancellation={handleCancellation}
                   existingSegmentsByPNR={existingSegmentsByPNR}

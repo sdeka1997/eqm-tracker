@@ -120,6 +120,12 @@ const GEMINI_TIMEOUT_MS = 60000
 const GEMINI_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.6-flash']
 const GEMINI_RETRIES_PER_MODEL = 1
 
+// Why a booking-shaped email exists. A "reminder" (check-in prompt, boarding pass,
+// post-flight receipt) restates a trip you already booked, so it may join a booking
+// this sync already knows about but must never originate one — otherwise a trip that
+// was cancelled and deleted comes back to life the next time the airline nags you.
+const EMAIL_KINDS = new Set(['booking', 'change', 'cancellation', 'reminder', 'other'])
+
 async function fetchGeminiWithTimeout(url, options, label) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS)
@@ -153,8 +159,16 @@ async function extractFlightsBatch(emails, geminiKey, { userName, onRetry } = {}
   const prompt = `Extract flight information from each of the following emails.
 Return a JSON object where each key is the email index (0, 1, 2...) and the value is an object with:
 - "cancelled": true if this email indicates a booking cancellation, false otherwise
+- "emailKind": one of "booking", "change", "cancellation", "reminder", "other" — see the definitions below
 - "confirmationNumbers": an array of all booking confirmation codes, PNRs, or record locators found in the email (e.g. ["ABC123", "XYZ789"]). Use [] if none found. List the code associated with the sender's airline first — for codeshare emails with multiple codes, include all of them.
 - "segments": an array of flight segments found in that email (use [] if cancelled or no flights found)
+
+emailKind definitions:
+- "booking": creates or confirms a new reservation (confirmation, e-ticket, receipt for a new purchase)
+- "change": modifies an existing reservation (schedule change, rebooking, seat or equipment change, re-issued ticket)
+- "cancellation": the reservation is cancelled, refunded, or converted to a travel credit
+- "reminder": prompts the traveller to act on a booking that already exists, and creates nothing new. Check-in prompts, boarding pass availability, "time to check in", "ready to fly", bag-drop notices, day-before or hours-before trip reminders, upgrade or seat-purchase offers for a booked trip, and post-flight receipts or surveys all belong here.
+- "other": anything else
 
 Each segment must have:
 - "flightNumber": e.g. "AS 10" or "UA 234"
@@ -253,6 +267,7 @@ ${numbered}`
     return emails.map((_, i) => {
       const entry = parsed[i] ?? parsed[String(i)] ?? {}
       const cancelled = entry.cancelled === true
+      const emailKind = EMAIL_KINDS.has(entry.emailKind) ? entry.emailKind : 'other'
       const confirmationNumbers = (Array.isArray(entry.confirmationNumbers) ? entry.confirmationNumbers : [])
         .map(c => typeof c === 'string' ? c.trim().toUpperCase() : null)
         .filter(Boolean)
@@ -267,10 +282,10 @@ ${numbered}`
           prefix: s.flightNumber.slice(0, 2).toUpperCase(),
         }))
         .filter(s => VALID_AIRLINE_PREFIXES.has(s.prefix))
-      return { cancelled, confirmationNumbers, segments }
+      return { cancelled, emailKind, confirmationNumbers, segments }
     })
   } catch {
-    return emails.map(() => ({ cancelled: false, confirmationNumbers: [], segments: [] }))
+    return emails.map(() => ({ cancelled: false, emailKind: 'other', confirmationNumbers: [], segments: [] }))
   }
 }
 
@@ -378,7 +393,7 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
 
     for (let j = 0; j < batch.length; j++) {
       const email = batch[j]
-      const { cancelled, confirmationNumbers, segments } = batchResults[j]
+      const { cancelled, emailKind, confirmationNumbers, segments } = batchResults[j]
       // Prefer whichever code matches an already-confirmed activity; otherwise use first.
       const confNum = confirmationNumbers.find(c => existingSegmentsByPNR.has(c)) || confirmationNumbers[0] || null
 
@@ -387,6 +402,7 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
         from: email.emailFrom || '',
         date: email.internalDate ? new Date(email.internalDate).toLocaleDateString() : '?',
         cancelled,
+        emailKind,
         confirmationNumber: confNum,
         segments: segments.map(s => `${s.flightNumber} ${s.origin}→${s.destination} ${s.date}`),
         disposition: null,
@@ -426,13 +442,15 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
           existingBooking.confirmationNumbers.push(c)
           pnrToBooking.set(c, existingBooking)
         })
-        // Newer email's segments overwrite (we're oldest-first, so this email is newer)
-        if (segments.length > 0) {
+        // Newer email's segments overwrite (we're oldest-first, so this email is newer).
+        // Reminders are excluded: a check-in prompt usually covers only the leg you are
+        // about to fly, so letting one overwrite would truncate a multi-leg itinerary.
+        if (segments.length > 0 && emailKind !== 'reminder') {
           existingBooking.segments = segments
           existingBooking.email = email
         }
         logEntry.disposition = 'pnr_merge'
-        logEntry.detail = `Merged into booking ${existingBooking.confirmationNumber}${newCodes.length ? ` · added PNRs: ${newCodes.join(', ')}` : ''}`
+        logEntry.detail = `Merged into booking ${existingBooking.confirmationNumber}${newCodes.length ? ` · added PNRs: ${newCodes.join(', ')}` : ''}${emailKind === 'reminder' ? ' · reminder, segments left as-is' : ''}`
         debugLog.push(logEntry)
         continue
       }
@@ -441,6 +459,23 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
       if (segments.length === 0) {
         logEntry.disposition = 'no_segments'
         logEntry.detail = 'No flight segments found by Gemini'
+        debugLog.push(logEntry)
+        continue
+      }
+
+      // ── Reminder with nothing to attach to ──────────────────────────────────
+      // It restates a trip booked before this sync window, and the booking email that
+      // would link its PNR to the rest of the itinerary is out of range. Queueing it
+      // would resurrect trips that were cancelled and deleted under a partner's code.
+      if (emailKind === 'reminder') {
+        const knownPNR = confirmationNumbers.find(c => existingSegmentsByPNR.has(c))
+        if (knownPNR) {
+          logEntry.disposition = 'reminder'
+          logEntry.detail = `Reminder for confirmed booking ${knownPNR}`
+        } else {
+          logEntry.disposition = 'reminder_orphan'
+          logEntry.detail = `Reminder for a booking not seen this sync${confNum ? ` (PNR ${confNum})` : ''} — not queued`
+        }
         debugLog.push(logEntry)
         continue
       }

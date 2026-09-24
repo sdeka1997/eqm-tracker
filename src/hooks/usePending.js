@@ -5,6 +5,16 @@ import {
 } from 'firebase/firestore'
 import { db } from '../firebase'
 
+// Identity of a queued Gmail flight. Keyed per segment, not per booking: a
+// multi-leg itinerary shares one PNR and each leg needs its own queue entry.
+function gmailDedupeKey(d) {
+  if (d.confirmationNumber) {
+    return `pnr:${d.confirmationNumber}|${d.origin || ''}|${d.destination || ''}|${d.date || ''}`
+  }
+  if (d.flightNumber && d.date) return `fk:${d.flightNumber}|${d.date}`
+  return null
+}
+
 export function usePending(uid) {
   const [pending, setPending] = useState([])
   const [loading, setLoading] = useState(true)
@@ -20,7 +30,12 @@ export function usePending(uid) {
         docs.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
         setPending(docs)
         setLoading(false)
-        inflightKeys.current.clear()
+        // Retire only the keys whose writes have now landed. Clearing wholesale
+        // let a write retire its own guard — Firestore echoes a local mutation
+        // back before addDoc resolves — so the next leg of the same booking was
+        // checked against an empty set and against a stale `pending` closure.
+        const landed = new Set(docs.map(gmailDedupeKey).filter(Boolean))
+        inflightKeys.current.forEach(k => { if (landed.has(k)) inflightKeys.current.delete(k) })
       },
       err => {
         console.error('Pending queue error:', err)
@@ -37,21 +52,17 @@ export function usePending(uid) {
       const inConfirmed = existingFlightyIds?.has(data.flightyId)
       if (inPending || inConfirmed) return false
     }
-    // Deduplicate Gmail imports by PNR (primary) then flightNumber+date (fallback)
+    // Deduplicate Gmail imports by PNR+segment (primary) then flightNumber+date (fallback)
     if (data.importedFrom === 'gmail_sync') {
-      if (data.confirmationNumber) {
-        const dedupeKey = `pnr:${data.confirmationNumber}`
-        const inPending = pending.some(p => p.confirmationNumber === data.confirmationNumber)
-        const inConfirmed = existingPNRs?.has(data.confirmationNumber)
-        if (inPending || inConfirmed || inflightKeys.current.has(dedupeKey)) return false
-        inflightKeys.current.add(dedupeKey)
-        await addDoc(collection(db, 'users', uid, 'pending'), { ...data, addedAt: serverTimestamp() })
-        return true
-      } else if (data.flightNumber && data.date) {
-        const dedupeKey = `fk:${data.flightNumber}|${data.date}`
-        const key = `${data.flightNumber}|${data.date}`
-        const inPending = pending.some(p => p.flightNumber && p.date && `${p.flightNumber}|${p.date}` === key)
-        const inConfirmed = existingFlightKeys?.has(key)
+      const dedupeKey = gmailDedupeKey(data)
+      if (dedupeKey) {
+        // The confirmed-activity check stays booking-level: if any leg of this PNR is
+        // already confirmed, the segment-subset check in gmailSync has already decided
+        // whether the itinerary genuinely changed.
+        const inConfirmed = data.confirmationNumber
+          ? existingPNRs?.has(data.confirmationNumber)
+          : existingFlightKeys?.has(`${data.flightNumber}|${data.date}`)
+        const inPending = pending.some(p => gmailDedupeKey(p) === dedupeKey)
         if (inPending || inConfirmed || inflightKeys.current.has(dedupeKey)) return false
         inflightKeys.current.add(dedupeKey)
         await addDoc(collection(db, 'users', uid, 'pending'), { ...data, addedAt: serverTimestamp() })
