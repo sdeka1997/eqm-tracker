@@ -99,8 +99,9 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
           const flagged = await onFlagCancellation?.(item.confirmationNumber)
           if (flagged) cancelled++
         } else {
-          await onAddPending(item)
-          added++
+          // Count documents actually written, not results emitted — addPending
+          // returns false when a segment is deduplicated away.
+          if (await onAddPending(item)) added++
         }
       }
 
