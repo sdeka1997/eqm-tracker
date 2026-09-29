@@ -118,7 +118,34 @@ const GEMINI_TIMEOUT_MS = 60000
 // traffic to a congested or preview model. Flash-Lite is sufficient for this
 // structured extraction task; full Flash remains available as the fallback.
 const GEMINI_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.6-flash']
-const GEMINI_RETRIES_PER_MODEL = 1
+// Waits between full rounds through GEMINI_MODELS once all of them are busy.
+const GEMINI_BACKOFF_MS = [4000, 10000, 20000, 30000]
+
+// Free-tier 503s are per-model capacity shedding, so the more stable Flash models we
+// can rotate through, the likelier one of them has room. Ask the API which ones this
+// key can actually call rather than hard-coding names that get retired. The preferred
+// models above go first; others follow newest-first. Preview/experimental builds are
+// skipped because they can vanish without notice.
+const MAX_GEMINI_MODELS = 5
+const MIN_GEMINI_VERSION = 2.5
+
+async function discoverGeminiModels(geminiKey) {
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=${geminiKey}`)
+    if (!res.ok) return GEMINI_MODELS
+    const data = await res.json()
+    const found = (data?.models || [])
+      .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
+      .map(m => m.name?.replace(/^models\//, '').match(/^gemini-(\d+(?:\.\d+)?)-flash(-lite)?$/))
+      .filter(m => m && parseFloat(m[1]) >= MIN_GEMINI_VERSION)
+      .sort((a, b) => parseFloat(b[1]) - parseFloat(a[1]))
+      .map(m => m[0])
+    const ordered = [...GEMINI_MODELS.filter(m => found.includes(m)), ...found.filter(m => !GEMINI_MODELS.includes(m))]
+    return ordered.length ? ordered.slice(0, MAX_GEMINI_MODELS) : GEMINI_MODELS
+  } catch {
+    return GEMINI_MODELS
+  }
+}
 
 // Why a booking-shaped email exists. A "reminder" (check-in prompt, boarding pass,
 // post-flight receipt) restates a trip you already booked, so it may join a booking
@@ -147,7 +174,7 @@ async function fetchGeminiWithTimeout(url, options, label) {
   }
 }
 
-async function extractFlightsBatch(emails, geminiKey, { userName, onRetry } = {}) {
+async function extractFlightsBatch(emails, geminiKey, { userName, onRetry, models: candidateModels = GEMINI_MODELS } = {}) {
   const numbered = emails.map((e, i) =>
     `--- EMAIL ${i} ---\nFrom: ${e.emailFrom}\nSubject: ${e.emailSubject}\n${prepareHtmlForGemini(e.emailHtml) || e.text}`
   ).join('\n\n')
@@ -189,16 +216,19 @@ ${numbered}`
   })
   const sizeKB = Math.round(body.length / 1024)
 
-  // Rate limits and overloads get one short retry. A hung request is aborted and
-  // switches models immediately instead of leaving the sync spinner up forever.
-  let res, modelIdx = 0, attempts = 0
+  // Gemini 503s ("model overloaded") are capacity blips that are usually specific to
+  // one model and clear within seconds to a minute. So on a transient failure, move
+  // straight to the next model (separate capacity pool) without waiting; only once
+  // every model has failed in the same round do we back off, with growing delays.
+  // Models that 404 are dropped. Validation/auth failures surface immediately.
+  const models = [...candidateModels]
+  let res, modelIdx = 0, round = 0, lastError = null
   while (true) {
-    const model = GEMINI_MODELS[modelIdx]
+    const model = models[modelIdx]
     let status = 0
     let msg = ''
     let reason = 'network error'
-    let retryable = false
-    let switchable = false
+    let transient = false
 
     try {
       res = await fetchGeminiWithTimeout(
@@ -215,49 +245,52 @@ ${numbered}`
       const err = await res.json().catch(() => ({}))
       status = res.status
       msg = err?.error?.message || res.statusText
-      retryable = status === 429 || status === 503
-      switchable = retryable || status === 404
+      transient = status === 429 || status === 500 || status === 503 || status === 504
       reason = status === 429
         ? 'rate limited'
         : status === 404
           ? 'model unavailable'
-          : status === 503
+          : transient
             ? 'busy'
             : 'request failed'
     } catch (error) {
       status = error.status || 0
       msg = error.message
       reason = error.reason || 'network error'
-      switchable = true
+      transient = true
     }
 
-    if (retryable && attempts < GEMINI_RETRIES_PER_MODEL) {
-      const retryMatch = msg.match(/retry in ([\d.]+)s/i)
-      const waitMs = retryMatch
-        ? Math.ceil(parseFloat(retryMatch[1])) * 1000 + 1000
-        : 5000 * 2 ** attempts + Math.floor(Math.random() * 2000)
-      attempts++
-      onRetry?.({ model, status, waitMs, reason })
-      await new Promise(r => setTimeout(r, waitMs))
+    if (status === 404 && models.length > 1) {
+      models.splice(modelIdx, 1)
+      modelIdx %= models.length
+      onRetry?.({ model: models[modelIdx], status, switched: true, reason })
       continue
     }
 
-    // Removed, overloaded, timed-out, and unreachable models fall through when a
-    // supported fallback remains. Validation/auth failures surface immediately.
-    if (switchable && modelIdx < GEMINI_MODELS.length - 1) {
+    if (!transient) {
+      if (status) throw new Error(`Gemini API error ${status} (${model}): ${msg}`)
+      throw new Error(msg || `Gemini request failed (${model})`)
+    }
+    lastError = status ? `Gemini API error ${status} (${model}): ${msg}` : (msg || `Gemini request failed (${model})`)
+
+    // Another model left to try this round: switch immediately.
+    if (modelIdx < models.length - 1) {
       modelIdx++
-      attempts = 0
-      onRetry?.({
-        model: GEMINI_MODELS[modelIdx],
-        status,
-        switched: true,
-        reason,
-      })
+      onRetry?.({ model: models[modelIdx], status, switched: true, reason })
       continue
     }
 
-    if (status) throw new Error(`Gemini API error ${status} (${model}): ${msg}`)
-    throw new Error(msg || `Gemini request failed (${model})`)
+    // Every model failed this round. Back off, then start over from the first.
+    if (round >= GEMINI_BACKOFF_MS.length) throw new Error(lastError)
+    const retryMatch = msg.match(/retry in ([\d.]+)s/i)
+    const waitMs = Math.max(
+      GEMINI_BACKOFF_MS[round] + Math.floor(Math.random() * 2000),
+      retryMatch ? Math.ceil(parseFloat(retryMatch[1])) * 1000 + 1000 : 0
+    )
+    round++
+    modelIdx = 0
+    onRetry?.({ model: models[0], status, waitMs, reason, attempt: round, maxAttempts: GEMINI_BACKOFF_MS.length })
+    await new Promise(r => setTimeout(r, waitMs))
   }
 
   const data = await res.json()
@@ -351,6 +384,8 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
   // booking = { confirmationNumber, confirmationNumbers[], segments, email, logEntry }
   const pnrToBooking = new Map()
 
+  const geminiModels = await discoverGeminiModels(geminiKey)
+
   for (let i = 0; i < emails.length; i += BATCH_SIZE) {
     const batch = emails.slice(i, i + BATCH_SIZE)
     const batchNum = Math.floor(i / BATCH_SIZE) + 1
@@ -361,12 +396,13 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
     try {
       batchResults = await extractFlightsBatch(batch, geminiKey, {
         userName,
-        onRetry: ({ model, status, waitMs, switched, reason }) => {
+        models: geminiModels,
+        onRetry: ({ model, status, waitMs, switched, reason, attempt, maxAttempts }) => {
           const statusSuffix = status ? ` (${status})` : ''
           onProgress?.({
             step: switched
               ? `Gemini ${reason}${statusSuffix} — switching to ${model}…`
-              : `Gemini ${reason}${statusSuffix} — retrying ${model} in ${Math.round(waitMs / 1000)}s…`,
+              : `Gemini ${reason}${statusSuffix} — all models busy, retry ${attempt}/${maxAttempts} in ${Math.round(waitMs / 1000)}s…`,
             current: i,
             total: emails.length,
           })
