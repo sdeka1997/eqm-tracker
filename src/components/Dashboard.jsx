@@ -95,15 +95,21 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
   // Watch Plaid connection state
   const [plaidConnected, setPlaidConnected] = useState(false)
 
-  // Track all imported Plaid IDs across all years for deduplication
+  // Card spend across all years: imported Plaid IDs for deduplication, and the
+  // newest posted date as the sync cutoff. The cutoff must span years, or a
+  // sync from an older tab would re-fetch everything after that year's last
+  // entry and duplicate rows that have no Plaid ID (Teller era, statement import).
   const [allPlaidIds, setAllPlaidIds] = useState(new Set())
+  const [latestCardDate, setLatestCardDate] = useState('')
   useEffect(() => {
     const q = query(
       collection(db, 'users', user.uid, 'activities'),
-      where('source', '==', 'plaid'),
+      where('type', '==', 'card_spend'),
     )
     return onSnapshot(q, snap => {
-      setAllPlaidIds(new Set(snap.docs.map(d => d.data().plaidTxId).filter(Boolean)))
+      const docs = snap.docs.map(d => d.data())
+      setAllPlaidIds(new Set(docs.map(d => d.plaidTxId).filter(Boolean)))
+      setLatestCardDate(docs.map(d => d.date).filter(Boolean).sort().pop() || '')
     })
   }, [user.uid])
 
@@ -487,15 +493,8 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
               {modal === 'plaid' && (
                 <PlaidSync
                   uid={user.uid}
-                  year={year}
                   existingPlaidIds={allPlaidIds}
-                  latestCardDate={
-                    activities
-                      .filter(a => a.type === 'card_spend' && a.date)
-                      .map(a => a.date)
-                      .sort()
-                      .pop() || ''
-                  }
+                  latestCardDate={latestCardDate}
                   onAddActivity={async data => addActivity(data)}
                   onCancel={() => setModal(null)}
                 />

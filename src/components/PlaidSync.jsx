@@ -29,7 +29,7 @@ function isPayment(tx) {
 }
 
 export default function PlaidSync({
-  uid, year, existingPlaidIds, latestCardDate, onAddActivity, onCancel,
+  uid, existingPlaidIds, latestCardDate, onAddActivity, onCancel,
 }) {
   const [connected, setConnected] = useState(null) // null = loading
   const [institution, setInstitution] = useState('')
@@ -43,9 +43,9 @@ export default function PlaidSync({
   const [linkToken, setLinkToken] = useState(null)
 
   // Everything on or before this date is assumed already imported (the Teller
-  // era). Editable, because the right cutoff depends on what is already stored.
-  // Derived from posted card_spend rows only — the anniversary bonus is a
-  // different activity type and never moves this date.
+  // era, statement imports). Editable, because the right cutoff depends on what
+  // is already stored. Derived from posted card_spend rows across all years —
+  // the anniversary bonus is a different activity type and never moves this date.
   const [cutoff, setCutoff] = useState(latestCardDate || '')
   const [cutoffEdited, setCutoffEdited] = useState(false)
 
@@ -137,16 +137,12 @@ export default function PlaidSync({
       const transactions = data.transactions || []
 
       let added = 0
-      const skips = { payment: 0, pending: 0, imported: 0, otherYear: 0 }
-      const otherYears = new Set()
+      const skips = { payment: 0, pending: 0, imported: 0 }
 
       for (const tx of transactions) {
         if (isPayment(tx))                    { skips.payment++;  continue }
         if (tx.status === 'pending')          { skips.pending++;  continue }
         if (existingPlaidIds?.has(tx.id))     { skips.imported++; continue }
-
-        const txYear = parseInt(tx.date.slice(0, 4))
-        if (txYear !== year) { skips.otherYear++; otherYears.add(txYear); continue }
 
         await onAddActivity({
           type: 'card_spend',
@@ -155,7 +151,9 @@ export default function PlaidSync({
           notes: tx.description,
           plaidTxId: tx.id,
           source: 'plaid',
-          year: txYear,
+          // Each transaction counts for the year it posted in, whichever tab
+          // the sync ran from — late-December charges synced in January land in December.
+          year: parseInt(tx.date.slice(0, 4)),
         })
         added++
       }
@@ -167,11 +165,10 @@ export default function PlaidSync({
         if (skips.imported)  parts.push(`${skips.imported} already imported`)
         if (skips.payment)   parts.push(`${skips.payment} bill payments`)
         if (skips.pending)   parts.push(`${skips.pending} still pending`)
-        if (skips.otherYear) parts.push(`${skips.otherYear} from ${[...otherYears].sort().join(', ')}`)
         setStatus({
           info: transactions.length === 0
             ? `Plaid returned no transactions after ${start || 'the start of history'}.`
-            : `No new transactions for ${year}. Of ${transactions.length} fetched: ${parts.join(', ')}.`,
+            : `No new transactions. Of ${transactions.length} fetched: ${parts.join(', ')}.`,
         })
       }
     } catch (err) {
