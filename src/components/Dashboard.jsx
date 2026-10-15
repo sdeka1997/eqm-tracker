@@ -211,7 +211,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
               onChange={e => setYear(parseInt(e.target.value))}
               className="bg-white/10 border border-white/20 text-white text-sm rounded-lg px-2 py-1.5 focus:outline-none"
             >
-              {[CURRENT_YEAR, CURRENT_YEAR - 1].map(y => (
+              {[CURRENT_YEAR + 1, CURRENT_YEAR, CURRENT_YEAR - 1].map(y => (
                 <option key={y} value={y} className="text-slate-800 bg-white">{y}</option>
               ))}
             </select>
