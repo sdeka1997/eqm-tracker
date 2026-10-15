@@ -41,10 +41,17 @@ export function useActivities(uid, year) {
     return unsub
   }, [uid, year])
 
+  // An entry belongs to the status year of its own date, not the year being
+  // viewed — otherwise a Dec 2025 entry added from the 2026 tab counts for 2026.
+  function yearOf(data) {
+    return data.date ? { year: parseInt(data.date.slice(0, 4)) } : {}
+  }
+
   async function addActivity(data) {
     await addDoc(collection(db, 'users', uid, 'activities'), {
-      year, // default to current view year; data.year overrides if present
+      year, // fallback for entries without a date
       ...data,
+      ...yearOf(data),
       createdAt: serverTimestamp(),
     })
   }
@@ -54,7 +61,7 @@ export function useActivities(uid, year) {
   }
 
   async function updateActivity(id, data) {
-    await updateDoc(doc(db, 'users', uid, 'activities', id), data)
+    await updateDoc(doc(db, 'users', uid, 'activities', id), { ...data, ...yearOf(data) })
   }
 
   const today = getToday()

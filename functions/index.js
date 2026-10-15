@@ -1,6 +1,7 @@
 const { onCall } = require('firebase-functions/v2/https')
 const { defineSecret } = require('firebase-functions/params')
 const admin = require('firebase-admin')
+const { FieldValue } = require('firebase-admin/firestore')
 
 admin.initializeApp()
 
@@ -152,6 +153,6 @@ exports.disconnectPlaid = onCall({ secrets: PLAID_SECRETS }, async (request) => 
     try { await plaidClient().itemRemove({ access_token: plaid.accessToken }) }
     catch (e) { console.warn('itemRemove failed:', e.message) }
   }
-  await ref.update({ plaid: admin.firestore.FieldValue.delete() })
+  await ref.update({ plaid: FieldValue.delete() })
   return { success: true }
 })
