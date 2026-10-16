@@ -1,9 +1,4 @@
 const FEATURES = {
-  calendar: {
-    title: 'Gmail sync',
-    body: 'Signed-in users connect Gmail with read-only access. The app finds airline confirmation emails, pulls out each flight leg, fare class and confirmation code, then queues them for review.',
-    tryIt: 'The review queue already holds a flight found this way. Open "view email" on it to see the source.',
-  },
   plaid: {
     title: 'Card sync',
     body: 'Signed-in users link their Atmos credit card through Plaid. New transactions are pulled in automatically and turned into Status Points at 1 SP per $2, rounded per month.',

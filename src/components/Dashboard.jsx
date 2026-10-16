@@ -17,12 +17,27 @@ import { usePending } from '../hooks/usePending'
 import { getCurrentTier, getNextTier, EARNING_METHODS, CURRENT_YEAR, calculateCardSpendPoints, countsTowardStatus, isFlight, isCardItem, getToday } from '../utils/calculations'
 import Spinner from './Spinner'
 import DemoFeatureNotice from './DemoFeatureNotice'
+import DemoGmailScan from './DemoGmailScan'
+import DemoTour from './DemoTour'
 
 const EARNING_METHOD_KEY = 'atmos_earning_method'
+const TOUR_SEEN_KEY = 'atmos_demo_tour_seen'
+
+function tourSeen() {
+  try { return sessionStorage.getItem(TOUR_SEEN_KEY) === '1' } catch { return false }
+}
 
 export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, onRefreshGmailToken }) {
   // Demo mode runs on in-memory sample data: no Firestore, Gmail or Plaid.
   const demo = !!user.isDemo
+  const [tourOpen, setTourOpen] = useState(() => demo && !tourSeen())
+  const [tourEvents, setTourEvents] = useState({ confirmed: 0, gmailImported: 0 })
+  const bumpTourEvent = (name) => setTourEvents(e => ({ ...e, [name]: e[name] + 1 }))
+
+  function closeTour() {
+    setTourOpen(false)
+    try { sessionStorage.setItem(TOUR_SEEN_KEY, '1') } catch {}
+  }
   const [year, setYear] = useState(CURRENT_YEAR)
   const [modal, setModal] = useState(null) // null | 'flight' | 'card' | 'calendar' | 'plaid' | 'flighty'
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(null) // null | 'flights' | 'card' | 'misc'
@@ -205,6 +220,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
   async function handleConfirmPending(confirmed) {
     await addActivity({ ...confirmed, year: confirmed.year || year })
     await dismissPending(confirmed.id)
+    bumpTourEvent('confirmed')
   }
 
 
@@ -281,6 +297,9 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
               <span className="font-semibold">Demo mode</span> — sample data, changes aren't saved. Add, edit, or confirm anything you like.
             </p>
             <div className="flex items-center gap-3">
+              {!tourOpen && (
+                <button onClick={() => setTourOpen(true)} className="text-amber-700 hover:underline">Take the tour</button>
+              )}
               <button onClick={onSignOut} className="text-amber-700 hover:underline">Exit demo</button>
               <button onClick={onSignIn} className="bg-alaska-blue hover:bg-alaska-navy text-white font-medium px-3 py-1 rounded-lg transition-colors">
                 Sign in with Google
@@ -297,7 +316,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
           <div className="lg:col-span-3 flex flex-col gap-6">
 
             {/* Status summary + tier progress */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 space-y-4">
+            <div data-tour="points" className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 space-y-4">
               <div className="flex items-start justify-between">
                 <div>
                   <div className="text-4xl font-black text-alaska-navy">{earnedPoints.toLocaleString()}</div>
@@ -365,7 +384,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
 
             {/* Review queue — mobile only (desktop renders in right column) */}
             {pending.length > 0 && (
-              <div className="lg:hidden" ref={reviewQueueRef}>
+              <div className="lg:hidden" ref={reviewQueueRef} data-tour="queue">
                 <ReviewQueue
                   pending={pending}
                   earningMethod={earningMethod}
@@ -377,7 +396,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
             )}
 
             {/* Flights */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+            <div data-tour="flights" className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
               <div className="mb-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -393,6 +412,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
                         ✈ Flighty
                       </button>
                       <button
+                        data-tour="gmail"
                         onClick={() => setModal('calendar')}
                         className="text-xs border border-slate-200 text-slate-500 hover:border-alaska-teal hover:text-alaska-teal px-2.5 py-0.5 rounded-full transition-colors"
                       >
@@ -459,7 +479,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
 
             {/* Review queue — desktop only (mobile renders above flights) */}
             {pending.length > 0 && (
-              <div className="hidden lg:block">
+              <div className="hidden lg:block" data-tour="queue">
                 <ReviewQueue
                   pending={pending}
                   earningMethod={earningMethod}
@@ -471,7 +491,9 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
             )}
 
             {/* Card spend */}
+            <div data-tour="card">
             <CardSpendSection activities={activities} onDelete={removeActivity} onUpdate={updateActivity} onDeleteAll={() => setConfirmDeleteAll('card')} onAddManual={() => setModal('card')} onSync={() => setModal('plaid')} cardConnected={plaidConnected} />
+            </div>
             <MiscSection activities={activities} onAdd={addActivity} onDelete={removeActivity} />
 
 
@@ -490,7 +512,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
 
       {/* Modal */}
       {modal && modal !== 'setup' && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4" onClick={() => setModal(null)}>
+        <div data-modal className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4" onClick={() => setModal(null)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-slate-100 flex items-center justify-between">
               <h2 className="font-semibold text-slate-800">
@@ -517,8 +539,16 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
                   onDone={() => setModal(null)}
                 />
               )}
-              {demo && (modal === 'plaid' || modal === 'calendar') && (
-                <DemoFeatureNotice feature={modal} onClose={() => setModal(null)} />
+              {demo && modal === 'plaid' && (
+                <DemoFeatureNotice feature="plaid" onClose={() => setModal(null)} />
+              )}
+              {demo && modal === 'calendar' && (
+                <DemoGmailScan
+                  knownPNRs={new Set([...pending, ...activities].map(a => a.confirmationNumber).filter(Boolean))}
+                  onAddPending={data => addPending(data)}
+                  onImported={() => bumpTourEvent('gmailImported')}
+                  onClose={() => setModal(null)}
+                />
               )}
               {!demo && modal === 'plaid' && (
                 <PlaidSync
@@ -568,9 +598,18 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
         </div>
       )}
 
+      {demo && tourOpen && (
+        <DemoTour
+          events={tourEvents}
+          context={{ earnedPoints, totalPoints, gmailImported: tourEvents.gmailImported }}
+          onClose={closeTour}
+          onSignIn={onSignIn}
+        />
+      )}
+
       {/* Delete account confirmation */}
       {confirmDeleteAccount && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setConfirmDeleteAccount(false)}>
+        <div data-modal className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setConfirmDeleteAccount(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <div className="p-5">
               <h3 className="font-semibold text-slate-800 mb-1">Delete your account?</h3>
@@ -600,7 +639,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
 
       {/* Delete all confirmation */}
       {confirmDeleteAll && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setConfirmDeleteAll(null)}>
+        <div data-modal className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setConfirmDeleteAll(null)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <div className="p-5">
               <h3 className="font-semibold text-slate-800 mb-1">
