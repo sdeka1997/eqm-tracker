@@ -21,16 +21,12 @@ import DemoGmailScan from './DemoGmailScan'
 import DemoTour from './DemoTour'
 
 const EARNING_METHOD_KEY = 'atmos_earning_method'
-const TOUR_SEEN_KEY = 'atmos_demo_tour_seen'
-
-function tourSeen() {
-  try { return sessionStorage.getItem(TOUR_SEEN_KEY) === '1' } catch { return false }
-}
 
 export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGmailToken }) {
   // Demo mode runs on in-memory sample data: no Firestore, Gmail or Plaid.
   const demo = !!user.isDemo
-  const [tourOpen, setTourOpen] = useState(() => demo && !tourSeen())
+  // Every entry into the demo starts from fresh sample data, so it gets the tour too.
+  const [tourOpen, setTourOpen] = useState(demo)
   const [tourEvents, setTourEvents] = useState({ confirmed: 0, gmailImported: 0, cancellationResolved: 0, cardSynced: 0 })
   // Flights the tour points at: the one just confirmed, and the one the demo Gmail scan flagged.
   const [lastConfirmed, setLastConfirmed] = useState(null)
@@ -38,10 +34,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
   const [lastCardSync, setLastCardSync] = useState(null)
   const bumpTourEvent = (name) => setTourEvents(e => ({ ...e, [name]: e[name] + 1 }))
 
-  function closeTour() {
-    setTourOpen(false)
-    try { sessionStorage.setItem(TOUR_SEEN_KEY, '1') } catch {}
-  }
+  const closeTour = () => setTourOpen(false)
   const [year, setYear] = useState(CURRENT_YEAR)
   const [modal, setModal] = useState(null) // null | 'flight' | 'card' | 'calendar' | 'plaid' | 'flighty'
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(null) // null | 'flights' | 'card' | 'misc'
