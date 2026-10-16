@@ -9,7 +9,6 @@ import {
 } from '../utils/calculations'
 import { INPUT_CLS, LABEL_CLS } from '../utils/styles'
 import FlightFields from './FlightFields'
-import { parseConfirmation } from '../utils/parser'
 
 const defaultForm = {
   origin: '',
@@ -18,9 +17,7 @@ const defaultForm = {
   flightNumber: '',
   bookingType: 'alaska_direct',
   fareOption: 'economy_std',
-  confirmationNumber: '',
   ticketPrice: '',
-  pasteText: '',
 }
 
 export default function FlightForm({ onSubmit, earningMethod, onCancel }) {
@@ -28,8 +25,6 @@ export default function FlightForm({ onSubmit, earningMethod, onCancel }) {
   const [distance, setDistance] = useState(null)
   const [distanceError, setDistanceError] = useState('')
   const [manualDistance, setManualDistance] = useState('')
-  const [showPaste, setShowPaste] = useState(false)
-  const [parsed, setParsed] = useState(false)
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
@@ -75,14 +70,6 @@ export default function FlightForm({ onSubmit, earningMethod, onCancel }) {
     fareOption: form.fareOption,
   })
 
-  function handleParse() {
-    const extracted = parseConfirmation(form.pasteText)
-    if (Object.keys(extracted).length > 0) {
-      setForm(f => ({ ...f, ...extracted }))
-      setParsed(true)
-    }
-  }
-
   function handleSubmit(e) {
     e.preventDefault()
     if (!form.origin || !form.destination || !form.date) return
@@ -98,7 +85,8 @@ export default function FlightForm({ onSubmit, earningMethod, onCancel }) {
       multiplier: selectedFare?.multiplier ?? 1,
       distanceMiles: effectiveDistance,
       ticketPrice: parseFloat(form.ticketPrice) || 0,
-      confirmationNumber: form.confirmationNumber || null,
+      // A manual flight is a placeholder for an unbooked trip, so it has no booking code.
+      confirmationNumber: null,
       statusPoints,
     })
   }
@@ -108,27 +96,6 @@ export default function FlightForm({ onSubmit, earningMethod, onCancel }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {/* Paste confirmation */}
-      <div>
-        <button type="button" onClick={() => setShowPaste(!showPaste)} className="text-xs text-alaska-blue hover:underline">
-          {showPaste ? '▾' : '▸'} Paste flight confirmation to auto-fill
-        </button>
-        {showPaste && (
-          <div className="mt-2 space-y-2">
-            <textarea
-              className={inputCls + ' h-24 resize-none'}
-              placeholder="Paste your confirmation email or type: SEA to JFK on Apr 5, AS 100"
-              value={form.pasteText}
-              onChange={e => { set('pasteText', e.target.value); setParsed(false) }}
-            />
-            <button type="button" onClick={handleParse} className="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg font-medium">
-              Parse & Auto-fill
-            </button>
-            {parsed && <p className="text-xs text-green-600">✓ Fields filled — review and confirm</p>}
-          </div>
-        )}
-      </div>
-
       {/* Route */}
       <div className="grid grid-cols-2 gap-3">
         <div>
@@ -171,7 +138,7 @@ export default function FlightForm({ onSubmit, earningMethod, onCancel }) {
         </div>
       </div>
 
-      {/* Booking type, fare class, PNR */}
+      {/* Booking type, fare class */}
       <FlightFields
         distanceMiles={effectiveDistance}
         onDistanceChange={v => setManualDistance(String(v))}
@@ -179,8 +146,6 @@ export default function FlightForm({ onSubmit, earningMethod, onCancel }) {
         onBookingTypeChange={v => set('bookingType', v)}
         fareOption={form.fareOption}
         onFareOptionChange={v => set('fareOption', v)}
-        pnr={form.confirmationNumber || ''}
-        onPnrChange={v => set('confirmationNumber', v)}
         hideDistance
       />
 

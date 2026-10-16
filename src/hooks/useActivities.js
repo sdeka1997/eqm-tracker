@@ -5,7 +5,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '../firebase'
 import { isDemoUid, subscribeDemo, demoDb } from '../demo/demoStore'
-import { calculateCardSpendPoints, countsTowardStatus, isCardItem, getToday } from '../utils/calculations'
+import { calculateCardSpendPoints, calculateCardProjectionPoints, countsTowardStatus, isCardItem, getToday } from '../utils/calculations'
 
 export function useActivities(uid, year) {
   const [activities, setActivities] = useState([])
@@ -80,13 +80,14 @@ export function useActivities(uid, year) {
 
   function calcPoints(acts) {
     const nonCard = acts
-      .filter(a => !isCardItem(a) && countsTowardStatus(a))
+      .filter(a => !isCardItem(a) && countsTowardStatus(a, today))
       .reduce((sum, a) => sum + (a.statusPoints || 0), 0)
     return nonCard + calculateCardSpendPoints(acts)
   }
 
   const earnedPoints = calcPoints(activities.filter(a => (a.date || '') <= today))
   const plannedPoints = calcPoints(activities.filter(a => (a.date || '') > today))
+    + calculateCardProjectionPoints(activities)
   const totalPoints = earnedPoints + plannedPoints
 
   return { activities, loading, error, earnedPoints, plannedPoints, totalPoints, addActivity, removeActivity, updateActivity }

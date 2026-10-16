@@ -1,99 +1,67 @@
 import { useState } from 'react'
 import { getToday } from '../utils/calculations'
+import { useUndoDelete } from '../hooks/useUndoDelete'
+import UndoToasts from './UndoToasts'
+import Modal from './Modal'
+import ModalFooter from './ModalFooter'
+import { useEscapeClose } from '../hooks/useEscapeClose'
 
-export default function MiscSection({ activities, onAdd, onDelete }) {
-  const [showForm, setShowForm] = useState(false)
-  const [description, setDescription] = useState('')
-  const [points, setPoints] = useState('')
-  const [date, setDate] = useState(getToday())
+const INPUT = 'w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-alaska-blue'
 
-  const miscItems = activities.filter(a => a.type === 'misc')
-  const totalSP = miscItems.reduce((sum, a) => sum + (a.statusPoints || 0), 0)
+// Add and edit share one screen; adding passes no item and no onDelete.
+function MiscEditModal({ item = {}, onSave, onDelete, onClose }) {
+  const [description, setDescription] = useState(item.description || '')
+  const [points, setPoints] = useState(String(item.statusPoints ?? ''))
+  const [date, setDate] = useState(item.date || getToday())
+  useEscapeClose(onClose)
 
-  async function handleAdd() {
-    if (!points || !description) return
-    await onAdd({
-      type: 'misc',
-      description,
-      statusPoints: parseInt(points),
-      date,
-    })
-    setDescription('')
-    setPoints('')
-    setDate(getToday())
-    setShowForm(false)
-  }
+  return (
+    <Modal onClose={onClose} maxWidth="max-w-sm">
+      <div className="p-5 border-b border-slate-100">
+        <h3 className="font-semibold text-slate-800">{item.id ? 'Miscellaneous' : 'Add Miscellaneous'}</h3>
+      </div>
+      <div className="p-5 space-y-3">
+        <input className={INPUT} value={description} onChange={e => setDescription(e.target.value)} placeholder="Description (e.g. Lyft ride credit)" autoFocus={!item.id} />
+        <div className="grid grid-cols-2 gap-3">
+          <input className={INPUT} type="number" min="0" value={points} onChange={e => setPoints(e.target.value)} placeholder="SP" />
+          <input className={INPUT} type="date" value={date} onChange={e => setDate(e.target.value)} />
+        </div>
+      </div>
+      <ModalFooter
+        onDelete={onDelete}
+        onCancel={onClose}
+        onSave={() => onSave({ description: description.trim(), statusPoints: parseInt(points) || 0, date })}
+        saveDisabled={!description.trim() || !(parseInt(points) > 0) || !date}
+      />
+    </Modal>
+  )
+}
+
+export default function MiscSection({ activities, onAdd, onUpdate, onDelete }) {
+  const [editing, setEditing] = useState(null)
+  const [adding, setAdding] = useState(false)
+  const { requestDelete, undo, queue: undoQueue, pendingIds } = useUndoDelete(onDelete)
+  const miscItems = activities.filter(a => a.type === 'misc' && !pendingIds.has(a.id))
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <h2 className="font-semibold text-slate-800">Miscellaneous</h2>
-          <button
-            onClick={() => setShowForm(s => !s)}
-            className="text-xs text-alaska-blue hover:underline font-medium"
-          >
-            {showForm ? 'Cancel' : '+ Add'}
-          </button>
+          <button onClick={() => setAdding(true)} className="text-xs text-alaska-blue hover:underline font-medium">+ Add</button>
         </div>
-        {/* delete-all misc button hidden but kept for re-enable
-        <div className="flex items-center gap-2">
-          {miscItems.length > 0 && (
-            <button
-              onClick={() => miscItems.forEach(a => onDelete(a.id))}
-              className="text-slate-300 hover:text-red-400 text-lg leading-none transition-colors"
-              title="Delete all"
-            >
-              ×
-            </button>
-          )}
-        </div>
-        */}
       </div>
 
-      {showForm && (
-        <div className="bg-slate-50 rounded-xl p-3 space-y-2 mb-3">
-          <input
-            type="text"
-            placeholder="Description (e.g. Lyft ride credit)"
-            value={description}
-            onChange={e => setDescription(e.target.value)}
-            className="w-full text-xs rounded-lg border border-slate-200 px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-alaska-blue bg-white"
-          />
-          <div className="flex gap-2">
-            <input
-              type="number"
-              placeholder="SP amount"
-              min="1"
-              value={points}
-              onChange={e => setPoints(e.target.value)}
-              className="flex-1 text-xs rounded-lg border border-slate-200 px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-alaska-blue bg-white"
-            />
-            <input
-              type="date"
-              value={date}
-              onChange={e => setDate(e.target.value)}
-              className="flex-1 text-xs rounded-lg border border-slate-200 px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-alaska-blue bg-white"
-            />
-          </div>
-          <button
-            onClick={handleAdd}
-            disabled={!description || !points}
-            className="w-full bg-alaska-blue text-white py-1.5 rounded-lg text-xs font-semibold disabled:opacity-40 hover:bg-alaska-navy transition-colors"
-          >
-            Add
-          </button>
-        </div>
-      )}
+      <UndoToasts queue={undoQueue} onUndo={undo} />
 
-      {miscItems.length === 0 && !showForm && (
+      {miscItems.length === 0 && (
         <p className="text-sm text-slate-400 text-center py-4">No entries yet — click + Add to get started</p>
       )}
 
       {miscItems.length > 0 && (
         <div className="space-y-1">
           {miscItems.sort((a, b) => (b.date || '').localeCompare(a.date || '')).map(a => (
-            <div key={a.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-50 group transition-colors">
+            <div key={a.id} onClick={() => setEditing(a)} className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer hover:bg-slate-50 transition-colors">
               <span className="text-base">🎁</span>
               <div className="flex-1 min-w-0">
                 <div className="text-xs font-medium text-slate-700 truncate">{a.description}</div>
@@ -101,16 +69,26 @@ export default function MiscSection({ activities, onAdd, onDelete }) {
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <span className="text-xs font-bold text-alaska-blue">+{(a.statusPoints || 0).toLocaleString()} SP</span>
-                <button
-                  onClick={() => onDelete(a.id)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-300 hover:text-red-400 text-lg leading-none"
-                >
-                  ×
-                </button>
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {adding && (
+        <MiscEditModal
+          onSave={async data => { await onAdd({ type: 'misc', ...data }); setAdding(false) }}
+          onClose={() => setAdding(false)}
+        />
+      )}
+
+      {editing && (
+        <MiscEditModal
+          item={editing}
+          onSave={async data => { await onUpdate(editing.id, data); setEditing(null) }}
+          onDelete={() => { requestDelete(editing.id, editing.description || 'Entry'); setEditing(null) }}
+          onClose={() => setEditing(null)}
+        />
       )}
     </div>
   )

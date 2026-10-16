@@ -40,6 +40,7 @@ function flight({ origin, destination, date, flightNumber, bookingType, fareOpti
     distanceMiles,
     ticketPrice: 0,
     confirmationNumber: pnr,
+    importedFrom: pnr ? 'gmail_sync' : undefined,
     statusPoints: calculateFlightPoints({ earningMethod: 'distance', distanceMiles, bookingType, fareOption }),
   }
 }
@@ -100,7 +101,24 @@ export function buildDemoActivities(year) {
     flight({ origin: 'SEA', destination: 'NRT', date: planned(18), flightNumber: 'JL 67',  bookingType: 'partner_via_alaska', fareOption: 'prem_economy', pnr: 'JLTKYO' }),
     flight({ origin: 'NRT', destination: 'SEA', date: planned(27), flightNumber: 'JL 68',  bookingType: 'partner_via_alaska', fareOption: 'prem_economy', pnr: 'JLTKYO' }),
     flight({ origin: 'SEA', destination: 'LAX', date: planned(10), flightNumber: 'AS 1310', bookingType: 'alaska_direct',     fareOption: 'economy_std', pnr: 'LAXHOL' }),
+    // Added by hand (projected). PHX is a plain forecast; NRT is a placeholder
+    // for the JL 67 trip that was booked without ticking the review card's box,
+    // so both count until NRT's date passes and it goes overdue; SFO's date has
+    // passed with no booking, so it's overdue; SAN matches the booking the demo
+    // Gmail scan finds, so its review card offers to replace it.
+    flight({ origin: 'SEA', destination: 'PHX', date: planned(40), flightNumber: 'AS 646',  bookingType: 'alaska_direct',     fareOption: 'economy_std', pnr: null }),
+    flight({ origin: 'SEA', destination: 'NRT', date: planned(19), flightNumber: '',        bookingType: 'partner_via_alaska', fareOption: 'prem_economy', pnr: null }),
+    flight({ origin: 'SEA', destination: 'SFO', date: planned(-12), flightNumber: 'AS 1094', bookingType: 'alaska_direct',    fareOption: 'economy_std', pnr: null }),
+    flight({ origin: 'SEA', destination: 'SAN', date: planned(31), flightNumber: '',        bookingType: 'alaska_direct',     fareOption: 'economy_std', pnr: null }),
     ...cardSpend(year, { throughToday: true }),
+    // Projected purchases. The demo card sync brings in an Alaska Airlines charge
+    // to match the airline ticket by hand; the furniture deposit is overdue.
+    { type: 'card_projection', date: planned(2),   amount: 400,  notes: 'Alaska Airlines ticket' },
+    { type: 'card_projection', date: planned(-10), amount: 800,  notes: 'Furniture deposit' },
+    { type: 'card_projection', date: planned(29),  amount: 500,  notes: 'Property tax payment' },
+    { type: 'card_projection', date: planned(36),  amount: 300,  notes: 'Flight to Chicago' },
+    { type: 'card_projection', date: planned(50),  amount: 600,  notes: 'Holiday gifts' },
+    { type: 'card_projection', date: planned(60),  amount: 1500, notes: 'Everyday spend' },
     { type: 'anniversary_bonus', date: pastDate(year, 0.45), notes: 'Summit card anniversary bonus', statusPoints: 10000 },
     { type: 'misc', description: 'Atmos Rewards welcome bonus', statusPoints: 2500, date: pastDate(year, 0.02) },
     { type: 'misc', description: 'Hertz rental (partner earning)', statusPoints: 400, date: pastDate(year, 0.5) },

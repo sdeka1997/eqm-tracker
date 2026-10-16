@@ -14,7 +14,7 @@ import CardSpendSection from './CardSpendSection'
 import MiscSection from './MiscSection'
 import ReviewQueue from './ReviewQueue'
 import { usePending } from '../hooks/usePending'
-import { getCurrentTier, getNextTier, EARNING_METHODS, CURRENT_YEAR, calculateCardSpendPoints, countsTowardStatus, isFlight, isCardItem, getToday } from '../utils/calculations'
+import { getCurrentTier, getNextTier, EARNING_METHODS, CURRENT_YEAR, calculateCardSpendPoints, calculateCardProjectionPoints, projectionSnapshot, countsTowardStatus, isFlight, isManualFlight, getToday } from '../utils/calculations'
 import Spinner from './Spinner'
 import DemoCardSync from './DemoCardSync'
 import DemoGmailScan from './DemoGmailScan'
@@ -37,7 +37,6 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
   const closeTour = () => setTourOpen(false)
   const [year, setYear] = useState(CURRENT_YEAR)
   const [modal, setModal] = useState(null) // null | 'flight' | 'card' | 'calendar' | 'plaid' | 'flighty'
-  const [confirmDeleteAll, setConfirmDeleteAll] = useState(null) // null | 'flights' | 'card' | 'misc'
   const [showProfileMenu, setShowProfileMenu] = useState(false)
   const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false)
   const [deletingAccount, setDeletingAccount] = useState(false)
@@ -47,7 +46,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
     () => localStorage.getItem(EARNING_METHOD_KEY) || 'distance'
   )
   const { activities, loading, error, earnedPoints, plannedPoints, totalPoints, addActivity, removeActivity, updateActivity } = useActivities(user.uid, year)
-  const { pending, addPending, dismissPending, clearAllPending } = usePending(user.uid)
+  const { pending, addPending, dismissPending } = usePending(user.uid)
 
   const prevPendingLengthRef = useRef(pending.length)
   useEffect(() => {
@@ -168,6 +167,10 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
       const byPNR = new Map()
       snap.docs.forEach(d => {
         const data = d.data()
+        // Manual flights are projections, not bookings: leave them out so a
+        // booking email with the same code still comes through for review and
+        // gets flagged as a match, instead of being skipped as already confirmed.
+        if (isManualFlight(data)) return
         const act = { ...data, id: d.id }
         const codes = new Set([
           data.confirmationNumber,
@@ -214,8 +217,12 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
     localStorage.setItem(EARNING_METHOD_KEY, method)
   }
 
-  async function handleConfirmPending(confirmed) {
-    await addActivity({ ...confirmed, year: confirmed.year || year })
+  async function handleConfirmPending({ replaceManualId, ...confirmed }) {
+    // The review card's "Replace your manual flight" box was ticked: match them,
+    // the same as picking this flight from the manual flight's edit screen.
+    const manual = replaceManualId && activities.find(a => a.id === replaceManualId)
+    await addActivity({ ...confirmed, year: confirmed.year || year, ...(manual ? { plannedAs: projectionSnapshot(manual) } : {}) })
+    if (manual) await removeActivity(manual.id)
     await dismissPending(confirmed.id)
     setLastConfirmed(confirmed)
     bumpTourEvent('confirmed')
@@ -342,38 +349,32 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
               {(() => {
                 const today = getToday()
 
-                const flightEarned = activities.filter(a => isFlight(a) && countsTowardStatus(a) && (a.date || '') <= today).reduce((s, a) => s + (a.statusPoints || 0), 0)
-                const flightPlanned = activities.filter(a => isFlight(a) && countsTowardStatus(a) && (a.date || '') > today).reduce((s, a) => s + (a.statusPoints || 0), 0)
+                const flightEarned = activities.filter(a => isFlight(a) && countsTowardStatus(a, today) && (a.date || '') <= today).reduce((s, a) => s + (a.statusPoints || 0), 0)
+                const flightPlanned = activities.filter(a => isFlight(a) && countsTowardStatus(a, today) && (a.date || '') > today).reduce((s, a) => s + (a.statusPoints || 0), 0)
 
                 const cardEarned = calculateCardSpendPoints(activities.filter(a => (a.date || '') <= today))
                 const cardPlanned = calculateCardSpendPoints(activities.filter(a => (a.date || '') > today))
+                  + calculateCardProjectionPoints(activities)
 
                 const miscEarned = activities.filter(a => a.type === 'misc' && (a.date || '') <= today).reduce((s, a) => s + (a.statusPoints || 0), 0)
                 const miscPlanned = activities.filter(a => a.type === 'misc' && (a.date || '') > today).reduce((s, a) => s + (a.statusPoints || 0), 0)
 
                 const rows = [
-                  { label: 'Flights', earned: flightEarned, planned: flightPlanned, deleteKey: 'flights' },
-                  { label: 'Card Spend', earned: cardEarned, planned: cardPlanned, deleteKey: 'card' },
-                  { label: 'Miscellaneous', earned: miscEarned, planned: miscPlanned, deleteKey: 'misc' },
+                  { label: 'Flights', earned: flightEarned, planned: flightPlanned },
+                  { label: 'Card Spend', earned: cardEarned, planned: cardPlanned },
+                  { label: 'Miscellaneous', earned: miscEarned, planned: miscPlanned },
                 ].filter(r => r.earned > 0 || r.planned > 0)
 
                 if (rows.length === 0) return null
                 return (
                   <div className="border-t border-slate-100 pt-3 space-y-1.5">
                     {rows.map(r => (
-                      <div key={r.label} className="flex items-center justify-between text-xs group/row">
+                      <div key={r.label} className="flex items-center justify-between text-xs">
                         <span className="text-slate-400">{r.label}</span>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-slate-600">
-                            +{r.earned.toLocaleString()} SP
-                            {r.planned > 0 && <span className="text-slate-400 ml-1">· +{r.planned.toLocaleString()} planned</span>}
-                          </span>
-                          <button
-                            onClick={() => setConfirmDeleteAll(r.deleteKey)}
-                            className="opacity-0 group-hover/row:opacity-100 transition-opacity text-slate-300 hover:text-red-400 text-base leading-none"
-                            title={`Delete all ${r.label.toLowerCase()}`}
-                          >×</button>
-                        </div>
+                        <span className="text-slate-600">
+                          +{r.earned.toLocaleString()} SP
+                          {r.planned > 0 && <span className="text-slate-400 ml-1">· +{r.planned.toLocaleString()} planned</span>}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -387,11 +388,11 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
               <div className="lg:hidden" ref={reviewQueueRef} data-tour="queue">
                 <ReviewQueue
                   pending={pending}
+                  activities={activities}
                   earningMethod={earningMethod}
                   onConfirm={handleConfirmPending}
                   onSkip={dismissPending}
                   allowDiscard={!demo}
-                  onClearAll={clearAllPending}
                 />
               </div>
             )}
@@ -428,19 +429,6 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                       {activities.filter(a => isFlight(a)).length} flights
                     </p>
                   ) : <span />}
-                  {/* delete-all flights button hidden but kept for re-enable
-                  <div className="flex items-center gap-3">
-                    {activities.filter(a => isFlight(a)).length > 0 && (
-                      <button
-                        onClick={() => setConfirmDeleteAll('flights')}
-                        className="text-slate-300 hover:text-red-400 text-lg leading-none transition-colors"
-                        title="Delete all flights"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
-                  */}
                 </div>
               </div>
               {loading ? (
@@ -472,6 +460,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                 <ActivityLog
                   activities={activities}
                   earningMethod={earningMethod}
+                  onAdd={addActivity}
                   onDelete={removeActivity}
                   onUpdate={updateActivity}
                   onCancellationResolved={() => bumpTourEvent('cancellationResolved')}
@@ -489,20 +478,20 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
               <div className="hidden lg:block" data-tour="queue">
                 <ReviewQueue
                   pending={pending}
+                  activities={activities}
                   earningMethod={earningMethod}
                   onConfirm={handleConfirmPending}
                   onSkip={dismissPending}
                   allowDiscard={!demo}
-                  onClearAll={clearAllPending}
                 />
               </div>
             )}
 
             {/* Card spend */}
             <div data-tour="card">
-            <CardSpendSection activities={activities} onDelete={removeActivity} onUpdate={updateActivity} onDeleteAll={() => setConfirmDeleteAll('card')} onAddManual={() => setModal('card')} onSync={() => setModal('plaid')} cardConnected={plaidConnected} />
+            <CardSpendSection activities={activities} onAdd={addActivity} onDelete={removeActivity} onUpdate={updateActivity} onAddManual={() => setModal('card')} onSync={() => setModal('plaid')} cardConnected={plaidConnected} />
             </div>
-            <MiscSection activities={activities} onAdd={addActivity} onDelete={removeActivity} />
+            <MiscSection activities={activities} onAdd={addActivity} onUpdate={updateActivity} onDelete={removeActivity} />
 
 
 
@@ -570,7 +559,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                   uid={user.uid}
                   existingPlaidIds={allPlaidIds}
                   latestCardDate={latestCardDate}
-                  onAddActivity={async data => addActivity(data)}
+                  onAddActivity={addActivity}
                   onCancel={() => setModal(null)}
                 />
               )}
@@ -651,46 +640,6 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
         </div>
       )}
 
-      {/* Delete all confirmation */}
-      {confirmDeleteAll && (
-        <div data-modal className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setConfirmDeleteAll(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
-            <div className="p-5">
-              <h3 className="font-semibold text-slate-800 mb-1">
-                Delete all {confirmDeleteAll === 'flights' ? 'flights' : confirmDeleteAll === 'card' ? 'card transactions' : 'miscellaneous entries'}?
-              </h3>
-              <p className="text-sm text-slate-500">
-                This will permanently remove all {confirmDeleteAll === 'flights' ? 'flight entries' : confirmDeleteAll === 'card' ? 'card spend entries' : 'miscellaneous entries'} for {year}. This cannot be undone.
-              </p>
-            </div>
-            <div className="flex border-t border-slate-100">
-              <button
-                onClick={() => setConfirmDeleteAll(null)}
-                className="flex-1 py-3 text-sm text-slate-500 hover:bg-slate-50 rounded-bl-2xl transition-colors font-medium"
-              >
-                Cancel
-              </button>
-              <div className="w-px bg-slate-100" />
-              <button
-                onClick={async () => {
-                  const toDelete = activities.filter(a =>
-                    confirmDeleteAll === 'flights'
-                      ? isFlight(a)
-                      : confirmDeleteAll === 'card'
-                        ? isCardItem(a)
-                        : a.type === 'misc'
-                  )
-                  for (const a of toDelete) await removeActivity(a.id)
-                  setConfirmDeleteAll(null)
-                }}
-                className="flex-1 py-3 text-sm text-red-500 hover:bg-red-50 rounded-br-2xl transition-colors font-semibold"
-              >
-                Delete all
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

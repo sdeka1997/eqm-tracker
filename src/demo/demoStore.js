@@ -66,7 +66,4 @@ export const demoDb = {
   remove(collection, id) {
     mutate(collection, docs => docs.filter(d => d.id !== id))
   },
-  clear(collection) {
-    mutate(collection, () => [])
-  },
 }

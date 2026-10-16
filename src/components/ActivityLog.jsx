@@ -1,10 +1,14 @@
 import { useState } from 'react'
-import { calculateFlightPoints, countsTowardStatus, FARE_OPTIONS, formatMonth, groupByMonth, isFlight } from '../utils/calculations'
+import { calculateFlightPoints, countsTowardStatus, FARE_OPTIONS, formatMonth, groupByMonth, isFlight, isManualFlight, isManualFlightOverdue, projectionSnapshot, rankFlightSuggestions } from '../utils/calculations'
+import MatchPicker, { dayGapLabel, FlagNote } from './MatchPicker'
 import FlightFields from './FlightFields'
 import Modal from './Modal'
 import { useEscapeClose } from '../hooks/useEscapeClose'
+import ModalFooter from './ModalFooter'
+import { useUndoDelete } from '../hooks/useUndoDelete'
+import UndoToasts from './UndoToasts'
 
-function FlightEditModal({ flight, earningMethod, onSave, onClose }) {
+function FlightEditModal({ flight, earningMethod, editableDate, renderExtra, onSave, onDelete, onClose }) {
   useEscapeClose(onClose)
   const [distanceMiles, setDistanceMiles] = useState(flight.distanceMiles || 0)
   const [bookingType, setBookingType] = useState(flight.bookingType || '')
@@ -12,6 +16,7 @@ function FlightEditModal({ flight, earningMethod, onSave, onClose }) {
   const [pnr, setPnr] = useState(flight.confirmationNumber || '')
   const [flightNumber, setFlightNumber] = useState(flight.flightNumber || '')
   const [editingFlightNumber, setEditingFlightNumber] = useState(false)
+  const [date, setDate] = useState(flight.date || '')
 
   const fareOpts = FARE_OPTIONS[bookingType] || []
   const selectedFare = fareOpts.find(o => o.value === fareOption) || fareOpts[0]
@@ -27,6 +32,7 @@ function FlightEditModal({ flight, earningMethod, onSave, onClose }) {
       statusPoints: livePoints,
       confirmationNumber: pnr || null,
       flightNumber: flightNumber.toUpperCase().trim() || null,
+      ...(editableDate && date ? { date } : {}),
     })
   }
 
@@ -56,6 +62,7 @@ function FlightEditModal({ flight, earningMethod, onSave, onClose }) {
                   {flightNumber || 'add flight #'}
                 </span>
               )}
+              {distanceMiles > 0 && ` · ${distanceMiles.toLocaleString()} mi`}
             </p>
           </div>
           <div className="text-right">
@@ -68,56 +75,45 @@ function FlightEditModal({ flight, earningMethod, onSave, onClose }) {
             distanceMiles={distanceMiles} onDistanceChange={setDistanceMiles}
             bookingType={bookingType} onBookingTypeChange={setBookingType}
             fareOption={fareOption} onFareOptionChange={setFareOption}
-            pnr={pnr} onPnrChange={setPnr}
+            {...(editableDate ? {} : { pnr, onPnrChange: setPnr })}
           />
+          {editableDate && (
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1.5">Date</label>
+              <input
+                type="date"
+                value={date}
+                onChange={e => setDate(e.target.value)}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-alaska-blue"
+              />
+            </div>
+          )}
+          {renderExtra?.({ date })}
         </div>
-        <div className="flex border-t border-slate-100">
-          <button onClick={onClose} className="flex-1 py-3 text-sm text-slate-500 hover:bg-slate-50 rounded-bl-2xl transition-colors font-medium">Cancel</button>
-          <div className="w-px bg-slate-100" />
-          <button
-            onClick={handleSave}
-            disabled={!bookingType}
-            className="flex-1 py-3 text-sm text-alaska-blue hover:bg-alaska-blue hover:text-white rounded-br-2xl transition-colors font-semibold disabled:opacity-40"
-          >
-            Save
-          </button>
-        </div>
+        <ModalFooter onDelete={onDelete} onCancel={onClose} onSave={handleSave} saveDisabled={!bookingType} />
     </Modal>
   )
 }
 
-export default function ActivityLog({ activities, earningMethod, onDelete, onUpdate, onCancellationResolved }) {
+export default function ActivityLog({ activities, earningMethod, onAdd, onDelete, onUpdate, onCancellationResolved }) {
   const currentMonth = new Date().toISOString().slice(0, 7)
   const [expanded, setExpanded] = useState(() => new Set(['__default__']))
   const [editing, setEditing] = useState(null)
-  const [undoQueue, setUndoQueue] = useState([]) // [{ id, label, timeoutId }]
-  const [pendingDeleteIds, setPendingDeleteIds] = useState(() => new Set())
+  const { requestDelete, undo, queue: undoQueue, pendingIds } = useUndoDelete(onDelete)
+  const deleteFlight = f => requestDelete(f.id, `${f.origin} → ${f.destination}`)
 
-  function handleCancelledDelete(id, label) {
-    const timeoutId = setTimeout(() => {
-      onDelete(id)
-      setUndoQueue(q => q.filter(u => u.id !== id))
-    }, 4000)
-    setPendingDeleteIds(s => new Set([...s, id]))
-    setUndoQueue(q => [...q, { id, label, timeoutId }])
-  }
-
-  function handleUndo(id) {
-    const entry = undoQueue.find(u => u.id === id)
-    if (entry) clearTimeout(entry.timeoutId)
-    setUndoQueue(q => q.filter(u => u.id !== id))
-    setPendingDeleteIds(s => { const n = new Set(s); n.delete(id); return n })
-  }
-
-  const flights = activities.filter(a => isFlight(a) && !pendingDeleteIds.has(a.id))
+  const flights = activities.filter(a => isFlight(a) && !pendingIds.has(a.id))
 
   if (flights.length === 0) {
     return (
+      <>
+      <UndoToasts queue={undoQueue} onUndo={undo} />
       <div className="text-center py-12 text-slate-400">
         <div className="text-4xl mb-3">✈️</div>
         <p className="font-medium">No flights yet</p>
         <p className="text-sm">Add a flight or import from Flighty to get started</p>
       </div>
+      </>
     )
   }
 
@@ -126,26 +122,79 @@ export default function ActivityLog({ activities, earningMethod, onDelete, onUpd
 
   const editingFlight = flights.find(f => f.id === editing)
 
+  // Same projection system as card spend: a manual flight's edit screen lets you
+  // pick the synced flight it became. Matching removes the manual flight and
+  // keeps a snapshot on the synced one so it can be unmatched.
+  async function matchManual(manual, synced) {
+    await onUpdate(synced.id, { plannedAs: projectionSnapshot(manual) })
+    await onDelete(manual.id)
+    setEditing(null)
+  }
+
+  function renderMatchSection(manual, { date }) {
+    const synced = flights.filter(f => !isManualFlight(f) && !f.plannedAs)
+    return (
+      <>
+        {isManualFlightOverdue(manual) && (
+          <FlagNote>
+            The date has passed with no booking found.
+          </FlagNote>
+        )}
+        <MatchPicker
+          label="Already booked? Pick the real flight:"
+          suggestions={rankFlightSuggestions({ ...manual, date }, synced)}
+          describe={f => ({
+            title: `${f.origin} → ${f.destination}${f.flightNumber ? ` · ${f.flightNumber}` : ''}`,
+            subtitle: [f.date, dayGapLabel(f.date, date)].filter(Boolean).join(' · '),
+            right: `+${(f.statusPoints || 0).toLocaleString()} SP`,
+          })}
+          onMatch={f => matchManual(manual, f)}
+          emptyText={`No synced ${manual.origin} → ${manual.destination} flights yet.`}
+        />
+      </>
+    )
+  }
+
+  function renderMatchedBanner(flight) {
+    const p = flight.plannedAs
+    return (
+      <div className="flex items-center justify-between gap-3 text-xs bg-green-50 rounded-lg px-3 py-2">
+        <span className="text-green-700 min-w-0">
+          ✓ Matched to your manual <span className="font-medium">{p.origin} → {p.destination}</span>
+          <span className="text-green-600/70"> · {p.date}</span>
+        </span>
+        <button
+          onClick={async () => { await onAdd(p); await onUpdate(flight.id, { plannedAs: null }); setEditing(null) }}
+          className="shrink-0 text-alaska-blue hover:underline font-medium"
+        >
+          Unmatch
+        </button>
+      </div>
+    )
+  }
+
   return (
     <>
       {editingFlight && (
         <FlightEditModal
+          key={editingFlight.id}
           flight={editingFlight}
           earningMethod={earningMethod}
+          editableDate={isManualFlight(editingFlight)}
+          renderExtra={isManualFlight(editingFlight)
+            ? ({ date }) => renderMatchSection(editingFlight, { date })
+            : editingFlight.plannedAs ? () => renderMatchedBanner(editingFlight) : undefined}
           onSave={updates => { onUpdate(editingFlight.id, updates); setEditing(null) }}
+          onDelete={() => { deleteFlight(editingFlight); setEditing(null) }}
           onClose={() => setEditing(null)}
         />
       )}
-      {undoQueue.map(u => (
-        <div key={u.id} className="flex items-center justify-between bg-slate-800 text-white px-4 py-3 rounded-xl text-sm mb-2">
-          <span className="text-slate-300">Deleted <span className="font-medium text-white">{u.label}</span></span>
-          <button onClick={() => handleUndo(u.id)} className="ml-4 font-semibold text-alaska-teal shrink-0">Undo</button>
-        </div>
-      ))}
+      <UndoToasts queue={undoQueue} onUndo={undo} />
       <div className="space-y-2">
         {months.map(month => {
           const items = byMonth[month]
           const monthSP = items.reduce((sum, f) => sum + (countsTowardStatus(f) ? (f.statusPoints || 0) : 0), 0)
+          const overdueCount = items.filter(f => isManualFlightOverdue(f)).length
           const isDefault = expanded.has('__default__')
           const isOpen = isDefault ? month >= currentMonth : expanded.has(month)
 
@@ -170,6 +219,9 @@ export default function ActivityLog({ activities, earningMethod, onDelete, onUpd
                 <div className="flex items-center gap-3">
                   <span className="text-sm font-semibold text-slate-800">{formatMonth(month)}</span>
                   <span className="text-xs text-slate-400">{items.length} flight{items.length !== 1 ? 's' : ''}</span>
+                  {overdueCount > 0 && (
+                    <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">{overdueCount} overdue</span>
+                  )}
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-sm font-bold text-alaska-blue">+{monthSP.toLocaleString()} SP</span>
@@ -180,6 +232,8 @@ export default function ActivityLog({ activities, earningMethod, onDelete, onUpd
               {isOpen && (
                 <div className="border-t border-slate-100 divide-y divide-slate-50">
                   {items.map(a => {
+                    const isManual = isManualFlight(a)
+                    const isOverdue = isManualFlightOverdue(a)
                     const isCounted = countsTowardStatus(a)
                     const toggleCounting = () => onUpdate(a.id, { countsTowardStatus: !isCounted })
 
@@ -194,6 +248,14 @@ export default function ActivityLog({ activities, earningMethod, onDelete, onUpd
                       }${a.possibleCancellation ? ' pb-2.5' : ''}`}
                     >
                       <div className="flex items-center gap-3 px-4 py-2.5">
+                        {isManual ? (
+                          <span
+                            className={`text-base p-1 ${isCounted ? '' : 'opacity-60'}`}
+                            title="Added by hand: a projected flight, not booked yet"
+                          >
+                            🗓️
+                          </span>
+                        ) : (
                         <button
                           onClick={e => { e.stopPropagation(); toggleCounting() }}
                           aria-pressed={!isCounted}
@@ -204,6 +266,7 @@ export default function ActivityLog({ activities, earningMethod, onDelete, onUpd
                         >
                           ✈️
                         </button>
+                        )}
                         <div className="flex-1 min-w-0">
                           <div className="text-xs font-semibold text-slate-800">
                             {a.origin} → {a.destination}
@@ -213,21 +276,24 @@ export default function ActivityLog({ activities, earningMethod, onDelete, onUpd
                           <div className="text-xs text-slate-400">
                             {a.date}
                             {a.distanceMiles ? ` · ${a.distanceMiles.toLocaleString()} mi` : ''}
-                            {!isCounted && <span className="ml-1.5 font-medium">· Not counting</span>}
+                            {isOverdue && <span className="ml-1.5 font-medium text-amber-600">· Overdue</span>}
+                            {a.plannedAs && <span className="ml-1.5 text-green-600" title={`Matched to your manual ${a.plannedAs.origin} → ${a.plannedAs.destination} (${a.plannedAs.date})`}>✓</span>}
+                            {!isCounted && !isOverdue && <span className="ml-1.5 font-medium">· Not counting</span>}
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           <div className="text-right">
-                            <div className={`text-xs font-bold ${isCounted ? 'text-alaska-blue' : 'text-slate-400'}`}>+{(a.statusPoints || 0).toLocaleString()}</div>
-                            <div className="text-xs text-slate-400">SP</div>
+                            {isManual ? (
+                              <div className={`text-xs font-bold border border-dashed rounded px-1.5 py-0.5 ${isCounted ? 'text-alaska-blue border-alaska-blue/40' : 'text-slate-400 border-slate-300 line-through'}`}>
+                                +{(a.statusPoints || 0).toLocaleString()} SP
+                              </div>
+                            ) : (
+                              <>
+                                <div className={`text-xs font-bold ${isCounted ? 'text-alaska-blue' : 'text-slate-400'}`}>+{(a.statusPoints || 0).toLocaleString()}</div>
+                                <div className="text-xs text-slate-400">SP</div>
+                              </>
+                            )}
                           </div>
-                          <button
-                            onClick={e => { e.stopPropagation(); onDelete(a.id) }}
-                            className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity text-slate-300 hover:text-red-400 text-lg leading-none"
-                            title="Delete"
-                          >
-                            ×
-                          </button>
                         </div>
                       </div>
                       {a.possibleCancellation && (
@@ -238,7 +304,7 @@ export default function ActivityLog({ activities, earningMethod, onDelete, onUpd
                           <span className="text-xs text-amber-700">⚠ Possibly cancelled</span>
                           <div className="flex items-center gap-3 ml-3 shrink-0">
                             <button
-                              onClick={e => { e.stopPropagation(); handleCancelledDelete(a.id, `${a.origin} → ${a.destination}`); onCancellationResolved?.() }}
+                              onClick={e => { e.stopPropagation(); deleteFlight(a); onCancellationResolved?.() }}
                               className="text-xs text-red-500 hover:text-red-700 font-medium"
                             >
                               Delete

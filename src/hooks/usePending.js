@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   collection, addDoc, deleteDoc, doc, onSnapshot,
-  query, serverTimestamp, setDoc, writeBatch,
+  query, serverTimestamp, setDoc,
 } from 'firebase/firestore'
 import { db } from '../firebase'
 import { isDemoUid, subscribeDemo, demoDb } from '../demo/demoStore'
@@ -98,12 +98,5 @@ export function usePending(uid) {
     await deleteDoc(doc(db, 'users', uid, 'pending', id))
   }
 
-  async function clearAllPending() {
-    if (isDemoUid(uid)) return demoDb.clear('pending')
-    const batch = writeBatch(db)
-    pending.forEach(p => batch.delete(doc(db, 'users', uid, 'pending', p.id)))
-    await batch.commit()
-  }
-
-  return { pending, loading, addPending, updatePending, dismissPending, clearAllPending }
+  return { pending, loading, addPending, updatePending, dismissPending }
 }
