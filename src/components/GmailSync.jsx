@@ -289,6 +289,7 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
       no_segments:         'bg-slate-100 text-slate-500',
       reminder:            'bg-blue-50 text-blue-600',
       reminder_orphan:     'bg-blue-50 text-blue-600',
+      not_booking:         'bg-slate-100 text-slate-500',
       flight_dedup:        'bg-slate-100 text-slate-500',
       batch_failed:        'bg-red-100 text-red-700',
     }
@@ -301,6 +302,7 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
       no_segments:         'Skipped (no flights)',
       reminder:            'Skipped (already confirmed)',
       reminder_orphan:     'Skipped (check-in / reminder)',
+      not_booking:         'Skipped (not a booking)',
       flight_dedup:        'Skipped (duplicate flight)',
       batch_failed:        'Not read (Gemini error)',
     }

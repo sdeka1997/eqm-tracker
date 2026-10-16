@@ -195,7 +195,7 @@ emailKind definitions:
 - "change": modifies an existing reservation (schedule change, rebooking, seat or equipment change, re-issued ticket)
 - "cancellation": the reservation is cancelled, refunded, or converted to a travel credit
 - "reminder": prompts the traveller to act on a booking that already exists, and creates nothing new. Check-in prompts, boarding pass availability, "time to check in", "ready to fly", bag-drop notices, day-before or hours-before trip reminders, upgrade or seat-purchase offers for a booked trip, and post-flight receipts or surveys all belong here.
-- "other": anything else
+- "other": anything else, including emails that mention flights the traveller has not booked: price alerts and tracked-flight notices (e.g. Google Flights, Kayak, Hopper), fare sales and deals, search results, and itineraries saved but not purchased
 
 Each segment must have:
 - "flightNumber": e.g. "AS 10" or "UA 234"
@@ -207,6 +207,7 @@ Rules:
 - ${passengerClause}
 - Include all legs in a multi-segment itinerary for the account holder
 - Use "segments": [] for emails with no qualifying flights
+- Only list segments the traveller actually holds a reservation on. A price alert or deal email lists flights for sale, not booked ones, so its segments are []
 
 ${numbered}`
 
@@ -512,6 +513,16 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
           logEntry.disposition = 'reminder_orphan'
           logEntry.detail = `Reminder for a booking not seen this sync${confNum ? ` (PNR ${confNum})` : ''} — not queued`
         }
+        debugLog.push(logEntry)
+        continue
+      }
+
+      // ── Not a reservation ───────────────────────────────────────────────────
+      // Price alerts and fare deals list flights for sale. With no PNR to tie them to
+      // a booking, trust the classification and keep them out of the review queue.
+      if (emailKind === 'other' && confirmationNumbers.length === 0) {
+        logEntry.disposition = 'not_booking'
+        logEntry.detail = 'No reservation (price alert, deal, or similar) — not queued'
         debugLog.push(logEntry)
         continue
       }
