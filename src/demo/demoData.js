@@ -99,7 +99,7 @@ export function buildDemoActivities(year) {
     // Planned
     flight({ origin: 'SEA', destination: 'NRT', date: planned(18), flightNumber: 'JL 67',  bookingType: 'partner_via_alaska', fareOption: 'prem_economy', pnr: 'JLTKYO' }),
     flight({ origin: 'NRT', destination: 'SEA', date: planned(27), flightNumber: 'JL 68',  bookingType: 'partner_via_alaska', fareOption: 'prem_economy', pnr: 'JLTKYO' }),
-    flight({ origin: 'SEA', destination: 'LAX', date: planned(41), flightNumber: 'AS 1310', bookingType: 'alaska_direct',     fareOption: 'economy_std', pnr: 'LAXHOL' }),
+    flight({ origin: 'SEA', destination: 'LAX', date: planned(10), flightNumber: 'AS 1310', bookingType: 'alaska_direct',     fareOption: 'economy_std', pnr: 'LAXHOL' }),
     ...cardSpend(year, { throughToday: true }),
     { type: 'anniversary_bonus', date: pastDate(year, 0.45), notes: 'Summit card anniversary bonus', statusPoints: 10000 },
     { type: 'misc', description: 'Atmos Rewards welcome bonus', statusPoints: 2500, date: pastDate(year, 0.02) },

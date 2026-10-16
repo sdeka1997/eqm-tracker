@@ -4,13 +4,17 @@ import { calculateFlightPoints, FARE_OPTIONS, getToday } from '../utils/calculat
 import Spinner from './Spinner'
 
 // Simulated Gmail sync for demo mode: plays out the scan, then "finds" one of
-// a few canned confirmation emails that aren't already in the account.
+// a few canned confirmation emails that aren't already in the account, plus a
+// cancellation notice for one of the planned flights.
 
 const BOOKINGS = [
   { pnr: 'SANDGO', flightNumber: 'AS 470',  origin: 'SEA', destination: 'SAN', inDays: 30, fareOption: 'first_DI',   cabin: 'First (D)' },
   { pnr: 'PSPSUN', flightNumber: 'AS 1176', origin: 'SEA', destination: 'PSP', inDays: 40, fareOption: 'economy_HK', cabin: 'Main (K)' },
   { pnr: 'MEXCTY', flightNumber: 'AS 288',  origin: 'SEA', destination: 'MEX', inDays: 48, fareOption: 'first_DI',   cabin: 'First (D)' },
 ]
+
+// A planned flight in the sample data that the scan reports as cancelled.
+const CANCELLED_PNR = 'LAXHOL'
 
 const PHASES = [
   { text: 'Connecting to Gmail (read-only)…', ms: 800 },
@@ -63,12 +67,16 @@ function toPending(b) {
   }
 }
 
-export default function DemoGmailScan({ knownPNRs, onAddPending, onImported, onClose }) {
+export default function DemoGmailScan({ knownPNRs, flights, onAddPending, onFlagCancellation, onImported, onClose }) {
   const [phase, setPhase] = useState(0)
   const [found] = useState(() => {
     const b = BOOKINGS.find(b => !knownPNRs.has(b.pnr))
     return b ? toPending(b) : null
   })
+  const [cancelled] = useState(() =>
+    flights.find(f => f.type === 'flight' && f.confirmationNumber === CANCELLED_PNR && !f.possibleCancellation) || null
+  )
+  const emailCount = (found ? 1 : 0) + (cancelled ? 1 : 0)
 
   useEffect(() => {
     if (phase >= PHASES.length) return
@@ -76,9 +84,10 @@ export default function DemoGmailScan({ knownPNRs, onAddPending, onImported, onC
     return () => clearTimeout(t)
   }, [phase])
 
-  async function handleAdd() {
-    await onAddPending(found)
-    onImported()
+  async function handleImport() {
+    if (found) await onAddPending(found)
+    if (cancelled) await onFlagCancellation(cancelled)
+    onImported({ flagged: cancelled })
     onClose()
   }
 
@@ -101,19 +110,34 @@ export default function DemoGmailScan({ knownPNRs, onAddPending, onImported, onC
         ))}
       </ul>
 
-      {!scanning && (found ? (
-        <div className="border-2 border-green-200 bg-green-50/50 rounded-xl p-3 space-y-1">
-          <p className="text-xs text-green-700 font-medium">Found 1 new confirmation email</p>
-          <p className="text-sm font-semibold text-slate-800">
-            {found.origin} → {found.destination}
-            <span className="ml-2 text-xs font-normal text-slate-500">{found.flightNumber} · {found.date}</span>
-          </p>
-          <p className="text-xs text-slate-500">
-            {found.fareLabel} · {found.confirmationNumber} · +{found.statusPoints.toLocaleString()} SP
-          </p>
+      {!scanning && (emailCount > 0 ? (
+        <div className="space-y-2">
+          <p className="text-xs text-slate-500 font-medium">Found {emailCount} new email{emailCount !== 1 ? 's' : ''}</p>
+          {found && (
+            <div className="border-2 border-green-200 bg-green-50/50 rounded-xl p-3 space-y-1">
+              <p className="text-xs text-green-700 font-medium">New booking · goes to the review queue</p>
+              <p className="text-sm font-semibold text-slate-800">
+                {found.origin} → {found.destination}
+                <span className="ml-2 text-xs font-normal text-slate-500">{found.flightNumber} · {found.date}</span>
+              </p>
+              <p className="text-xs text-slate-500">
+                {found.fareLabel} · {found.confirmationNumber} · +{found.statusPoints.toLocaleString()} SP
+              </p>
+            </div>
+          )}
+          {cancelled && (
+            <div className="border-2 border-amber-200 bg-amber-50/50 rounded-xl p-3 space-y-1">
+              <p className="text-xs text-amber-700 font-medium">Cancellation notice · flags the existing flight</p>
+              <p className="text-sm font-semibold text-slate-800">
+                {cancelled.origin} → {cancelled.destination}
+                <span className="ml-2 text-xs font-normal text-slate-500">{cancelled.flightNumber} · {cancelled.date}</span>
+              </p>
+              <p className="text-xs text-slate-500">{cancelled.confirmationNumber} · {cancelled.statusPoints.toLocaleString()} SP at stake</p>
+            </div>
+          )}
         </div>
       ) : (
-        <p className="text-sm text-slate-500 text-center py-2">No new confirmation emails found.</p>
+        <p className="text-sm text-slate-500 text-center py-2">No new emails found.</p>
       ))}
 
       <div className="flex gap-2">
@@ -121,15 +145,15 @@ export default function DemoGmailScan({ knownPNRs, onAddPending, onImported, onC
           onClick={onClose}
           className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50"
         >
-          {found ? 'Cancel' : 'Close'}
+          {emailCount ? 'Cancel' : 'Close'}
         </button>
-        {found && (
+        {emailCount > 0 && (
           <button
-            onClick={handleAdd}
+            onClick={handleImport}
             disabled={scanning}
             className="flex-1 bg-alaska-blue hover:bg-alaska-navy disabled:opacity-40 text-white py-2.5 rounded-xl text-sm font-semibold transition-colors"
           >
-            Add to review queue
+            Import
           </button>
         )}
       </div>

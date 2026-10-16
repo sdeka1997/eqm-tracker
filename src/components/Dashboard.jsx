@@ -27,12 +27,14 @@ function tourSeen() {
   try { return sessionStorage.getItem(TOUR_SEEN_KEY) === '1' } catch { return false }
 }
 
-export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, onRefreshGmailToken }) {
+export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGmailToken }) {
   // Demo mode runs on in-memory sample data: no Firestore, Gmail or Plaid.
   const demo = !!user.isDemo
   const [tourOpen, setTourOpen] = useState(() => demo && !tourSeen())
-  const [tourEvents, setTourEvents] = useState({ reviewed: 0, gmailImported: 0 })
-  const [lastConfirmed, setLastConfirmed] = useState(null) // the tour points at this flight
+  const [tourEvents, setTourEvents] = useState({ confirmed: 0, gmailImported: 0, cancellationResolved: 0 })
+  // Flights the tour points at: the one just confirmed, and the one the demo Gmail scan flagged.
+  const [lastConfirmed, setLastConfirmed] = useState(null)
+  const [flaggedFlight, setFlaggedFlight] = useState(null)
   const bumpTourEvent = (name) => setTourEvents(e => ({ ...e, [name]: e[name] + 1 }))
 
   function closeTour() {
@@ -218,18 +220,11 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
     localStorage.setItem(EARNING_METHOD_KEY, method)
   }
 
-  // A discard also ends the tour's review step, so the tour never strands the visitor.
-  async function handleDismissPending(id) {
-    await dismissPending(id)
-    setLastConfirmed(null)
-    bumpTourEvent('reviewed')
-  }
-
   async function handleConfirmPending(confirmed) {
     await addActivity({ ...confirmed, year: confirmed.year || year })
     await dismissPending(confirmed.id)
     setLastConfirmed(confirmed)
-    bumpTourEvent('reviewed')
+    bumpTourEvent('confirmed')
   }
 
 
@@ -307,12 +302,14 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
             </p>
             <div className="flex items-center gap-3">
               {!tourOpen && (
-                <button onClick={() => setTourOpen(true)} className="text-amber-700 hover:underline">Take the tour</button>
+                <button
+                  onClick={() => { setLastConfirmed(null); setFlaggedFlight(null); setTourOpen(true) }}
+                  className="text-amber-700 hover:underline"
+                >
+                  Take the tour
+                </button>
               )}
               <button onClick={onSignOut} className="text-amber-700 hover:underline">Exit demo</button>
-              <button onClick={onSignIn} className="bg-alaska-blue hover:bg-alaska-navy text-white font-medium px-3 py-1 rounded-lg transition-colors">
-                Sign in with Google
-              </button>
             </div>
           </div>
         </div>
@@ -398,7 +395,8 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
                   pending={pending}
                   earningMethod={earningMethod}
                   onConfirm={handleConfirmPending}
-                  onSkip={handleDismissPending}
+                  onSkip={dismissPending}
+                  allowDiscard={!demo}
                   onClearAll={clearAllPending}
                 />
               </div>
@@ -477,7 +475,13 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
                   </button>
                 </div>
               ) : (
-                <ActivityLog activities={activities} earningMethod={earningMethod} onDelete={removeActivity} onUpdate={updateActivity} />
+                <ActivityLog
+                  activities={activities}
+                  earningMethod={earningMethod}
+                  onDelete={removeActivity}
+                  onUpdate={updateActivity}
+                  onCancellationResolved={() => bumpTourEvent('cancellationResolved')}
+                />
               )}
             </div>
           </div>
@@ -493,7 +497,8 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
                   pending={pending}
                   earningMethod={earningMethod}
                   onConfirm={handleConfirmPending}
-                  onSkip={handleDismissPending}
+                  onSkip={dismissPending}
+                  allowDiscard={!demo}
                   onClearAll={clearAllPending}
                 />
               </div>
@@ -554,8 +559,10 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
               {demo && modal === 'calendar' && (
                 <DemoGmailScan
                   knownPNRs={new Set([...pending, ...activities].map(a => a.confirmationNumber).filter(Boolean))}
+                  flights={activities}
                   onAddPending={data => addPending(data)}
-                  onImported={() => bumpTourEvent('gmailImported')}
+                  onFlagCancellation={flight => updateActivity(flight.id, { possibleCancellation: true })}
+                  onImported={({ flagged }) => { setFlaggedFlight(flagged); bumpTourEvent('gmailImported') }}
                   onClose={() => setModal(null)}
                 />
               )}
@@ -610,9 +617,8 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
       {demo && tourOpen && (
         <DemoTour
           events={tourEvents}
-          context={{ earnedPoints, totalPoints, lastConfirmed }}
+          context={{ earnedPoints, totalPoints, lastConfirmed, flaggedFlight, pendingCount: pending.length }}
           onClose={closeTour}
-          onSignIn={onSignIn}
         />
       )}
 

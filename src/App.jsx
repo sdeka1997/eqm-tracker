@@ -65,7 +65,7 @@ export default function App() {
   }
 
   if (demo && !user) {
-    return <Dashboard user={DEMO_USER} onSignOut={exitDemo} onSignIn={() => { exitDemo(); handleSignIn() }} />
+    return <Dashboard user={DEMO_USER} onSignOut={exitDemo} />
   }
 
   if (user === undefined) {

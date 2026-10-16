@@ -4,6 +4,8 @@ import { getCurrentTier, getNextTier } from '../utils/calculations'
 // Guided walkthrough for demo mode. Each step highlights one or more elements
 // at once. Steps with `waitFor` advance on their own when the matching counter
 // in `events` goes up (the visitor did the thing); there is no skipping them.
+// Steps whose `when` is false are passed over, e.g. on a second run of the tour
+// once the canned emails have all been imported.
 
 const tour = name => `[data-tour="${name}"]`
 const flightRow = f => f && `[data-flight-key="${f.date}|${f.origin}|${f.destination}"]`
@@ -30,18 +32,19 @@ const STEPS = [
     hint: 'Click Gmail to continue',
   },
   {
+    when: ({ pendingCount }) => pendingCount > 0,
     targets: () => [tour('queue')],
     title: 'Review before it counts',
     body: () => 'Imported flights wait here so nothing counts until you check it. The route, flight number, and fare class were read straight from the email; click "view email" to see the source.',
-    waitFor: 'reviewed',
+    waitFor: 'confirmed',
     hint: 'Confirm the flight to continue',
   },
   {
+    when: ({ lastConfirmed }) => !!lastConfirmed,
     // Fall back to the whole flights card if the new row's month is collapsed.
     targets: ({ lastConfirmed }) => [tour('points'), [flightRow(lastConfirmed), tour('flights')]],
     title: 'Added, and points updated',
     body: ({ lastConfirmed, earnedPoints, totalPoints }) => {
-      if (!lastConfirmed) return `You discarded that flight, so nothing changed: still ${totalPoints.toLocaleString()} status points with planned trips.`
       const route = `${lastConfirmed.origin} → ${lastConfirmed.destination}`
       const now = getCurrentTier(earnedPoints)
       const planned = getCurrentTier(totalPoints)
@@ -49,6 +52,14 @@ const STEPS = [
         planned && planned !== now ? `, enough for ${planned.name} once you fly it.` : '.'
       }`
     },
+  },
+  {
+    when: ({ flaggedFlight }) => !!flaggedFlight,
+    targets: ({ flaggedFlight }) => [[flightRow(flaggedFlight), tour('flights')]],
+    title: 'Possible cancellation',
+    body: ({ flaggedFlight }) => `The scan also found a cancellation email for ${flaggedFlight.origin} → ${flaggedFlight.destination} (${flaggedFlight.confirmationNumber}). Rather than deleting anything on its own, the app flags the flight for you to decide: Delete it, or Dismiss the flag if the trip is still on.`,
+    waitFor: 'cancellationResolved',
+    hint: 'Delete or dismiss to continue',
   },
   {
     targets: () => [tour('flights')],
@@ -125,7 +136,7 @@ function placePopover(area, size, width) {
   return { top: vh - GUTTER - size.height, left: centeredLeft }
 }
 
-export default function DemoTour({ events, context, onClose, onSignIn }) {
+export default function DemoTour({ events, context, onClose }) {
   const [index, setIndex] = useState(0)
   const [rects, setRects] = useState([])
   // Step aside while any modal is open (editing a flight, the Gmail scan, …).
@@ -137,15 +148,19 @@ export default function DemoTour({ events, context, onClose, onSignIn }) {
   contextRef.current = context
   const step = STEPS[index]
 
+  function advance() {
+    let i = index + 1
+    while (i < STEPS.length - 1 && STEPS[i].when && !STEPS[i].when(contextRef.current)) i++
+    setIndex(i)
+  }
+
   // Remember the event count when a waiting step starts; advance when it grows.
   useEffect(() => {
     baseline.current = step.waitFor ? events[step.waitFor] : null
   }, [index])
 
   useEffect(() => {
-    if (step.waitFor && events[step.waitFor] > baseline.current) {
-      setIndex(i => i + 1)
-    }
+    if (step.waitFor && events[step.waitFor] > baseline.current) advance()
   }, [events, step])
 
   // Bring the targets into view when the step changes. Wait a frame so layout
@@ -225,21 +240,21 @@ export default function DemoTour({ events, context, onClose, onSignIn }) {
         <p className="text-sm text-slate-600 mt-1.5">{step.body(context)}</p>
 
         <div className="flex items-center justify-between gap-3 mt-4">
-          <button onClick={onClose} className="text-xs text-slate-400 hover:text-slate-600">
-            {step.final ? 'Close' : 'Exit tour'}
-          </button>
+          {step.final ? <span /> : (
+            <button onClick={onClose} className="text-xs text-slate-400 hover:text-slate-600">Exit tour</button>
+          )}
           {step.final ? (
             <button
-              onClick={onSignIn}
+              onClick={onClose}
               className="bg-alaska-blue hover:bg-alaska-navy text-white text-sm font-semibold px-3 py-1.5 rounded-lg transition-colors"
             >
-              Sign in with Google
+              Finish
             </button>
           ) : step.waitFor ? (
             <span className="text-xs font-medium text-alaska-blue animate-pulse">{step.hint}</span>
           ) : (
             <button
-              onClick={() => setIndex(i => i + 1)}
+              onClick={advance}
               className="bg-alaska-blue hover:bg-alaska-navy text-white text-sm font-semibold px-3 py-1.5 rounded-lg transition-colors"
             >
               {step.next || 'Next'}
