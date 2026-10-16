@@ -31,7 +31,8 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
   // Demo mode runs on in-memory sample data: no Firestore, Gmail or Plaid.
   const demo = !!user.isDemo
   const [tourOpen, setTourOpen] = useState(() => demo && !tourSeen())
-  const [tourEvents, setTourEvents] = useState({ confirmed: 0, gmailImported: 0 })
+  const [tourEvents, setTourEvents] = useState({ reviewed: 0, gmailImported: 0 })
+  const [lastConfirmed, setLastConfirmed] = useState(null) // the tour points at this flight
   const bumpTourEvent = (name) => setTourEvents(e => ({ ...e, [name]: e[name] + 1 }))
 
   function closeTour() {
@@ -217,10 +218,18 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
     localStorage.setItem(EARNING_METHOD_KEY, method)
   }
 
+  // A discard also ends the tour's review step, so the tour never strands the visitor.
+  async function handleDismissPending(id) {
+    await dismissPending(id)
+    setLastConfirmed(null)
+    bumpTourEvent('reviewed')
+  }
+
   async function handleConfirmPending(confirmed) {
     await addActivity({ ...confirmed, year: confirmed.year || year })
     await dismissPending(confirmed.id)
-    bumpTourEvent('confirmed')
+    setLastConfirmed(confirmed)
+    bumpTourEvent('reviewed')
   }
 
 
@@ -389,7 +398,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
                   pending={pending}
                   earningMethod={earningMethod}
                   onConfirm={handleConfirmPending}
-                  onSkip={dismissPending}
+                  onSkip={handleDismissPending}
                   onClearAll={clearAllPending}
                 />
               </div>
@@ -484,7 +493,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
                   pending={pending}
                   earningMethod={earningMethod}
                   onConfirm={handleConfirmPending}
-                  onSkip={dismissPending}
+                  onSkip={handleDismissPending}
                   onClearAll={clearAllPending}
                 />
               </div>
@@ -601,7 +610,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, on
       {demo && tourOpen && (
         <DemoTour
           events={tourEvents}
-          context={{ earnedPoints, totalPoints, gmailImported: tourEvents.gmailImported }}
+          context={{ earnedPoints, totalPoints, lastConfirmed }}
           onClose={closeTour}
           onSignIn={onSignIn}
         />

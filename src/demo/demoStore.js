@@ -1,5 +1,5 @@
 import { CURRENT_YEAR } from '../utils/calculations'
-import { buildDemoActivities, buildDemoPending } from './demoData'
+import { buildDemoActivities } from './demoData'
 
 // In-memory stand-in for Firestore while in demo mode. Nothing leaves the
 // browser, and a page reload starts from fresh sample data.
@@ -30,7 +30,8 @@ function ensureSeeded() {
       id: newId(),
       year: parseInt(a.date.slice(0, 4)),
     })),
-    pending: buildDemoPending().map(p => ({ ...p, id: newId() })),
+    // Empty until the simulated Gmail scan finds something.
+    pending: [],
   }
 }
 

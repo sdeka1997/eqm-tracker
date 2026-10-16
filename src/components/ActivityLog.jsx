@@ -186,6 +186,7 @@ export default function ActivityLog({ activities, earningMethod, onDelete, onUpd
                     return (
                     <div
                       key={a.id}
+                      data-flight-key={`${a.date}|${a.origin}|${a.destination}`}
                       onClick={() => setEditing(a.id)}
                       title="Click to edit this flight"
                       className={`cursor-pointer group transition-colors ${

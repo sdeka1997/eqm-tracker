@@ -7,6 +7,7 @@ import Spinner from './Spinner'
 // a few canned confirmation emails that aren't already in the account.
 
 const BOOKINGS = [
+  { pnr: 'SANDGO', flightNumber: 'AS 470',  origin: 'SEA', destination: 'SAN', inDays: 30, fareOption: 'first_DI',   cabin: 'First (D)' },
   { pnr: 'PSPSUN', flightNumber: 'AS 1176', origin: 'SEA', destination: 'PSP', inDays: 40, fareOption: 'economy_HK', cabin: 'Main (K)' },
   { pnr: 'MEXCTY', flightNumber: 'AS 288',  origin: 'SEA', destination: 'MEX', inDays: 48, fareOption: 'first_DI',   cabin: 'First (D)' },
 ]

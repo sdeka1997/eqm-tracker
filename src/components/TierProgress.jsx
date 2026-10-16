@@ -73,7 +73,7 @@ export default function TierProgress({ earnedPoints, plannedPoints }) {
         {/* Planned overlay — diagonal stripes */}
         {plannedPoints > 0 && (
           <div
-            className="absolute left-0 top-0 h-full rounded-full"
+            className="absolute left-0 top-0 h-full rounded-full transition-all duration-700"
             style={{
               width: `${pct(totalPoints)}%`,
               background: `repeating-linear-gradient(45deg, ${hexToRgba(barColors.solid, 0.8)} 0px, ${hexToRgba(barColors.solid, 0.8)} 4px, ${barColors.stripeB} 4px, ${barColors.stripeB} 8px)`,

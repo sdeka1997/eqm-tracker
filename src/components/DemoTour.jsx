@@ -1,9 +1,12 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { getCurrentTier, getNextTier } from '../utils/calculations'
 
-// Guided walkthrough for demo mode. Each step highlights an element tagged
-// with data-tour="<target>". Steps with `waitFor` advance on their own when
-// the matching counter in `events` goes up (the user did the thing).
+// Guided walkthrough for demo mode. Each step highlights one or more elements
+// at once. Steps with `waitFor` advance on their own when the matching counter
+// in `events` goes up (the visitor did the thing); there is no skipping them.
+
+const tour = name => `[data-tour="${name}"]`
+const flightRow = f => f && `[data-flight-key="${f.date}|${f.origin}|${f.destination}"]`
 
 const STEPS = [
   {
@@ -12,7 +15,7 @@ const STEPS = [
     next: 'Start the tour',
   },
   {
-    target: 'points',
+    targets: () => [tour('points')],
     title: 'Your status at a glance',
     body: ({ earnedPoints }) => {
       const next = getNextTier(earnedPoints)
@@ -20,42 +23,42 @@ const STEPS = [
     },
   },
   {
-    target: 'queue',
-    title: 'Review imported flights',
-    body: () => 'Flights found in Gmail or a Flighty export land here first, so nothing counts until you check it. This one came from a confirmation email; the fare class was read straight from it. Click Confirm ✓ to add it.',
-    waitFor: 'confirmed',
+    targets: () => [tour('gmail')],
+    title: 'Find flights in Gmail',
+    body: () => 'Signed-in users can scan their inbox for airline confirmation emails. Try a simulated scan.',
+    waitFor: 'gmailImported',
+    hint: 'Click Gmail to continue',
   },
   {
-    target: 'points',
-    title: 'Points update instantly',
-    body: ({ earnedPoints, totalPoints }) => {
+    targets: () => [tour('queue')],
+    title: 'Review before it counts',
+    body: () => 'Imported flights wait here so nothing counts until you check it. The route, flight number, and fare class were read straight from the email; click "view email" to see the source.',
+    waitFor: 'reviewed',
+    hint: 'Confirm the flight to continue',
+  },
+  {
+    // Fall back to the whole flights card if the new row's month is collapsed.
+    targets: ({ lastConfirmed }) => [tour('points'), [flightRow(lastConfirmed), tour('flights')]],
+    title: 'Added, and points updated',
+    body: ({ lastConfirmed, earnedPoints, totalPoints }) => {
+      if (!lastConfirmed) return `You discarded that flight, so nothing changed: still ${totalPoints.toLocaleString()} status points with planned trips.`
+      const route = `${lastConfirmed.origin} → ${lastConfirmed.destination}`
       const now = getCurrentTier(earnedPoints)
       const planned = getCurrentTier(totalPoints)
-      return planned && planned !== now
-        ? `With that flight booked, your planned total is ${totalPoints.toLocaleString()}, enough for ${planned.name} once you fly it.`
-        : `Your planned total is now ${totalPoints.toLocaleString()} status points.`
+      return `${route} is now in your flights (+${lastConfirmed.statusPoints.toLocaleString()} SP), and your planned total rose to ${totalPoints.toLocaleString()}${
+        planned && planned !== now ? `, enough for ${planned.name} once you fly it.` : '.'
+      }`
     },
   },
   {
-    target: 'flights',
+    targets: () => [tour('flights')],
     title: 'Every flight, scored',
     body: () => 'Flights are grouped by month (click a month to expand it). Click any flight to change its fare class and see the points recalculate under Alaska\'s earning rules; tap ✈️ to stop counting a flight.',
   },
   {
-    target: 'card',
+    targets: () => [tour('card')],
     title: 'Credit card spend',
-    body: () => 'Card transactions sync automatically and earn 1 status point per $2, totaled by month. Click a month to see the transactions in it.',
-  },
-  {
-    target: 'gmail',
-    title: 'Find flights in Gmail',
-    body: () => 'Signed-in users can scan their inbox for airline confirmation emails. Click Gmail to try a simulated scan.',
-    waitFor: 'gmailImported',
-  },
-  {
-    target: 'queue',
-    title: "That's the tour",
-    body: ({ gmailImported }) => `${gmailImported ? 'The scan found a new booking and queued it for review, just like the real thing. ' : ''}Keep exploring: add, edit, or delete anything. Nothing here is saved.`,
+    body: () => 'Card transactions sync automatically and earn 1 status point per $2, totaled by month. That\'s the tour: keep exploring and change anything you like. Nothing here is saved.',
     final: true,
   },
 ]
@@ -64,25 +67,74 @@ const PAD = 6
 const GUTTER = 16
 const GAP = 12
 
-function findTarget(name) {
-  if (!name) return null
-  // Some sections render twice (mobile and desktop layouts); use the visible one.
-  return [...document.querySelectorAll(`[data-tour="${name}"]`)]
-    .find(el => el.getBoundingClientRect().width > 0) || null
+// Some sections render twice (mobile and desktop layouts); use the visible one.
+function findVisible(selector) {
+  if (!selector) return null
+  return [...document.querySelectorAll(selector)].find(el => el.getBoundingClientRect().width > 0) || null
 }
 
-function sameRect(a, b) {
-  return a && b && a.top === b.top && a.left === b.left && a.width === b.width && a.height === b.height
+// Each target is a selector, or a list of fallbacks where the first match wins.
+function resolveTargets(step, context) {
+  if (!step.targets) return []
+  return step.targets(context)
+    .map(t => (Array.isArray(t) ? t : [t]).map(findVisible).find(Boolean))
+    .filter(Boolean)
+}
+
+function toRect(el) {
+  const r = el.getBoundingClientRect()
+  return { top: r.top, left: r.left, width: r.width, height: r.height }
+}
+
+function union(rects) {
+  const top = Math.min(...rects.map(r => r.top))
+  const left = Math.min(...rects.map(r => r.left))
+  const bottom = Math.max(...rects.map(r => r.top + r.height))
+  const right = Math.max(...rects.map(r => r.left + r.width))
+  return { top, left, width: right - left, height: bottom - top }
+}
+
+// Scroll so every target is on screen together when they fit, else the first.
+function scrollToTargets(els) {
+  if (!els.length) return
+  const u = union(els.map(toRect))
+  const vh = window.innerHeight
+  const top = u.height < vh - 2 * GUTTER - 160
+    ? window.scrollY + u.top - (vh - u.height) / 2
+    : window.scrollY + u.top - 80
+  window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+}
+
+function placePopover(area, size, width) {
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  if (!area) return { top: Math.max(GUTTER, (vh - size.height) / 2), left: (vw - width) / 2 }
+
+  const clampTop = t => Math.min(Math.max(GUTTER, t), vh - GUTTER - size.height)
+  const clampLeft = l => Math.min(Math.max(GUTTER, l), vw - GUTTER - width)
+  const centeredLeft = clampLeft(area.left + area.width / 2 - width / 2)
+
+  const below = area.top + area.height + PAD + GAP
+  if (below + size.height <= vh - GUTTER) return { top: below, left: centeredLeft }
+  const above = area.top - PAD - GAP - size.height
+  if (above >= GUTTER) return { top: above, left: centeredLeft }
+  const right = area.left + area.width + PAD + GAP
+  if (right + width <= vw - GUTTER) return { top: clampTop(area.top), left: right }
+  const left = area.left - PAD - GAP - width
+  if (left >= GUTTER) return { top: clampTop(area.top), left }
+  return { top: vh - GUTTER - size.height, left: centeredLeft }
 }
 
 export default function DemoTour({ events, context, onClose, onSignIn }) {
   const [index, setIndex] = useState(0)
-  const [rect, setRect] = useState(null)
+  const [rects, setRects] = useState([])
   // Step aside while any modal is open (editing a flight, the Gmail scan, …).
   const [paused, setPaused] = useState(false)
   const [popSize, setPopSize] = useState({ width: 0, height: 0 })
   const popRef = useRef(null)
   const baseline = useRef(null)
+  const contextRef = useRef(context)
+  contextRef.current = context
   const step = STEPS[index]
 
   // Remember the event count when a waiting step starts; advance when it grows.
@@ -96,20 +148,20 @@ export default function DemoTour({ events, context, onClose, onSignIn }) {
     }
   }, [events, step])
 
-  // Bring the target into view when the step changes.
+  // Bring the targets into view when the step changes. Wait a frame so layout
+  // changes from the triggering action (a queue card disappearing) settle first.
   useEffect(() => {
-    findTarget(step.target)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const frame = requestAnimationFrame(() => scrollToTargets(resolveTargets(step, contextRef.current)))
+    return () => cancelAnimationFrame(frame)
   }, [index])
 
-  // Follow the target as the page scrolls, resizes, or re-renders.
+  // Follow the targets as the page scrolls, resizes, or re-renders.
   useEffect(() => {
     let frame
     const tick = () => {
       setPaused(!!document.querySelector('[data-modal]'))
-      const el = findTarget(step.target)
-      const r = el?.getBoundingClientRect()
-      const next = r ? { top: r.top, left: r.left, width: r.width, height: r.height } : null
-      setRect(prev => (sameRect(prev, next) || (!prev && !next) ? prev : next))
+      const next = resolveTargets(step, contextRef.current).map(toRect)
+      setRects(prev => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next))
       frame = requestAnimationFrame(tick)
     }
     tick()
@@ -130,48 +182,39 @@ export default function DemoTour({ events, context, onClose, onSignIn }) {
 
   if (paused) return null
 
-  const vw = window.innerWidth
-  const vh = window.innerHeight
-  const width = Math.min(340, vw - GUTTER * 2)
-
-  let popStyle
-  if (step.target && rect) {
-    const below = rect.top + rect.height + PAD + GAP
-    const above = rect.top - PAD - GAP - popSize.height
-    const fitsBelow = below + popSize.height <= vh - GUTTER
-    const top = fitsBelow || above < GUTTER ? Math.min(below, vh - GUTTER - popSize.height) : above
-    const left = Math.min(Math.max(rect.left + rect.width / 2 - width / 2, GUTTER), vw - GUTTER - width)
-    popStyle = { top: Math.max(GUTTER, top), left, width }
-  } else {
-    popStyle = { top: Math.max(GUTTER, (vh - popSize.height) / 2), left: (vw - width) / 2, width }
-  }
-
-  const spotlight = step.target && rect
+  const width = Math.min(340, window.innerWidth - GUTTER * 2)
+  const pop = placePopover(rects.length ? union(rects) : null, popSize, width)
   const stepCount = STEPS.length - 1 // the welcome card isn't numbered
 
   return (
     <>
-      {spotlight ? (
+      {/* Dim everything except the targets; clicks pass through to the page. */}
+      <svg className="fixed inset-0 z-[60] w-full h-full pointer-events-none">
+        <defs>
+          <mask id="demo-tour-mask">
+            <rect width="100%" height="100%" fill="white" />
+            {rects.map((r, i) => (
+              <rect key={i} x={r.left - PAD} y={r.top - PAD} width={r.width + PAD * 2} height={r.height + PAD * 2} rx="16" fill="black" />
+            ))}
+          </mask>
+        </defs>
+        <rect width="100%" height="100%" fill="rgba(15, 23, 42, 0.55)" mask="url(#demo-tour-mask)" />
+      </svg>
+      {rects.map((r, i) => (
         <div
-          className="fixed z-[60] rounded-2xl pointer-events-none transition-all duration-200"
-          style={{
-            top: rect.top - PAD,
-            left: rect.left - PAD,
-            width: rect.width + PAD * 2,
-            height: rect.height + PAD * 2,
-            boxShadow: '0 0 0 9999px rgba(15, 23, 42, 0.55)',
-          }}
+          key={i}
+          className="fixed z-[60] rounded-2xl pointer-events-none ring-2 ring-alaska-teal transition-all duration-200"
+          style={{ top: r.top - PAD, left: r.left - PAD, width: r.width + PAD * 2, height: r.height + PAD * 2 }}
         />
-      ) : (
-        <div className="fixed inset-0 z-[60] bg-slate-900/55" onClick={onClose} />
-      )}
+      ))}
+      {!step.targets && <div className="fixed inset-0 z-[60]" />}
 
       <div
         ref={popRef}
         role="dialog"
         aria-label={step.title}
         className="fixed z-[61] bg-white rounded-2xl shadow-2xl p-4 transition-[top,left] duration-200"
-        style={popStyle}
+        style={{ ...pop, width }}
       >
         <div className="flex items-start justify-between gap-3">
           <h3 className="font-semibold text-slate-800">{step.title}</h3>
@@ -183,40 +226,25 @@ export default function DemoTour({ events, context, onClose, onSignIn }) {
 
         <div className="flex items-center justify-between gap-3 mt-4">
           <button onClick={onClose} className="text-xs text-slate-400 hover:text-slate-600">
-            {step.final ? 'Close' : 'Skip tour'}
+            {step.final ? 'Close' : 'Exit tour'}
           </button>
-          <div className="flex items-center gap-2">
-            {index > 1 && !step.final && (
-              <button
-                onClick={() => setIndex(i => i - 1)}
-                className="text-sm text-slate-500 hover:text-slate-700 px-2 py-1.5"
-              >
-                Back
-              </button>
-            )}
-            {step.final ? (
-              <button
-                onClick={onSignIn}
-                className="bg-alaska-blue hover:bg-alaska-navy text-white text-sm font-semibold px-3 py-1.5 rounded-lg transition-colors"
-              >
-                Sign in with Google
-              </button>
-            ) : step.waitFor ? (
-              <button
-                onClick={() => setIndex(i => i + 1)}
-                className="text-sm text-slate-400 hover:text-slate-600 px-2 py-1.5"
-              >
-                Skip step
-              </button>
-            ) : (
-              <button
-                onClick={() => setIndex(i => i + 1)}
-                className="bg-alaska-blue hover:bg-alaska-navy text-white text-sm font-semibold px-3 py-1.5 rounded-lg transition-colors"
-              >
-                {step.next || 'Next'}
-              </button>
-            )}
-          </div>
+          {step.final ? (
+            <button
+              onClick={onSignIn}
+              className="bg-alaska-blue hover:bg-alaska-navy text-white text-sm font-semibold px-3 py-1.5 rounded-lg transition-colors"
+            >
+              Sign in with Google
+            </button>
+          ) : step.waitFor ? (
+            <span className="text-xs font-medium text-alaska-blue animate-pulse">{step.hint}</span>
+          ) : (
+            <button
+              onClick={() => setIndex(i => i + 1)}
+              className="bg-alaska-blue hover:bg-alaska-navy text-white text-sm font-semibold px-3 py-1.5 rounded-lg transition-colors"
+            >
+              {step.next || 'Next'}
+            </button>
+          )}
         </div>
       </div>
     </>
