@@ -69,7 +69,18 @@ const STEPS = [
   {
     targets: () => [tour('card')],
     title: 'Credit card spend',
-    body: () => 'Card transactions sync automatically and earn 1 status point per $2, totaled by month. That\'s the tour: keep exploring and change anything you like. Nothing here is saved.',
+    body: () => 'Card spend earns 1 status point per $2, totaled by month. Signed-in users link their card through Plaid; try a simulated sync to pull in new transactions.',
+    waitFor: 'cardSynced',
+    hint: 'Click Sync to continue',
+  },
+  {
+    targets: () => [tour('points'), tour('card')],
+    title: "That's the tour",
+    body: ({ lastCardSync, totalPoints }) => `${
+      lastCardSync?.count
+        ? `${lastCardSync.count} new transactions landed in this month's card spend (+${lastCardSync.points.toLocaleString()} SP), bringing you to ${totalPoints.toLocaleString()} with planned trips. `
+        : ''
+    }Keep exploring and change anything you like. Nothing here is saved.`,
     final: true,
   },
 ]

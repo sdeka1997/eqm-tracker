@@ -91,6 +91,12 @@ export default function DemoGmailScan({ knownPNRs, flights, onAddPending, onFlag
     onClose()
   }
 
+  // Nothing new still counts as a finished scan, so the tour never waits forever.
+  function handleClose() {
+    if (!scanning && emailCount === 0) onImported({ flagged: null })
+    onClose()
+  }
+
   const scanning = phase < PHASES.length
 
   return (
@@ -142,7 +148,7 @@ export default function DemoGmailScan({ knownPNRs, flights, onAddPending, onFlag
 
       <div className="flex gap-2">
         <button
-          onClick={onClose}
+          onClick={handleClose}
           className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50"
         >
           {emailCount ? 'Cancel' : 'Close'}

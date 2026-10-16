@@ -16,7 +16,7 @@ import ReviewQueue from './ReviewQueue'
 import { usePending } from '../hooks/usePending'
 import { getCurrentTier, getNextTier, EARNING_METHODS, CURRENT_YEAR, calculateCardSpendPoints, countsTowardStatus, isFlight, isCardItem, getToday } from '../utils/calculations'
 import Spinner from './Spinner'
-import DemoFeatureNotice from './DemoFeatureNotice'
+import DemoCardSync from './DemoCardSync'
 import DemoGmailScan from './DemoGmailScan'
 import DemoTour from './DemoTour'
 
@@ -31,10 +31,11 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
   // Demo mode runs on in-memory sample data: no Firestore, Gmail or Plaid.
   const demo = !!user.isDemo
   const [tourOpen, setTourOpen] = useState(() => demo && !tourSeen())
-  const [tourEvents, setTourEvents] = useState({ confirmed: 0, gmailImported: 0, cancellationResolved: 0 })
+  const [tourEvents, setTourEvents] = useState({ confirmed: 0, gmailImported: 0, cancellationResolved: 0, cardSynced: 0 })
   // Flights the tour points at: the one just confirmed, and the one the demo Gmail scan flagged.
   const [lastConfirmed, setLastConfirmed] = useState(null)
   const [flaggedFlight, setFlaggedFlight] = useState(null)
+  const [lastCardSync, setLastCardSync] = useState(null)
   const bumpTourEvent = (name) => setTourEvents(e => ({ ...e, [name]: e[name] + 1 }))
 
   function closeTour() {
@@ -303,7 +304,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
             <div className="flex items-center gap-3">
               {!tourOpen && (
                 <button
-                  onClick={() => { setLastConfirmed(null); setFlaggedFlight(null); setTourOpen(true) }}
+                  onClick={() => { setLastConfirmed(null); setFlaggedFlight(null); setLastCardSync(null); setTourOpen(true) }}
                   className="text-amber-700 hover:underline"
                 >
                   Take the tour
@@ -554,7 +555,12 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                 />
               )}
               {demo && modal === 'plaid' && (
-                <DemoFeatureNotice feature="plaid" onClose={() => setModal(null)} />
+                <DemoCardSync
+                  activities={activities}
+                  onAddActivity={addActivity}
+                  onSynced={result => { setLastCardSync(result); bumpTourEvent('cardSynced') }}
+                  onClose={() => setModal(null)}
+                />
               )}
               {demo && modal === 'calendar' && (
                 <DemoGmailScan
@@ -617,7 +623,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
       {demo && tourOpen && (
         <DemoTour
           events={tourEvents}
-          context={{ earnedPoints, totalPoints, lastConfirmed, flaggedFlight, pendingCount: pending.length }}
+          context={{ earnedPoints, totalPoints, lastConfirmed, flaggedFlight, lastCardSync, pendingCount: pending.length }}
           onClose={closeTour}
         />
       )}
