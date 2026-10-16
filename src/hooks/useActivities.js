@@ -4,6 +4,7 @@ import {
   query, where, serverTimestamp,
 } from 'firebase/firestore'
 import { db } from '../firebase'
+import { isDemoUid, subscribeDemo, demoDb } from '../demo/demoStore'
 import { calculateCardSpendPoints, countsTowardStatus, isCardItem, getToday } from '../utils/calculations'
 
 export function useActivities(uid, year) {
@@ -15,6 +16,14 @@ export function useActivities(uid, year) {
     if (!uid) return
     setLoading(true)
     setError(null)
+    if (isDemoUid(uid)) {
+      return subscribeDemo(state => {
+        const docs = state.activities.filter(a => a.year === year)
+        docs.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+        setActivities(docs)
+        setLoading(false)
+      })
+    }
     // NOTE: this query (where + orderBy on different fields) requires a
     // Firestore composite index. Firestore will log a link to create it
     // on first run — click that link in the browser console.
@@ -48,6 +57,7 @@ export function useActivities(uid, year) {
   }
 
   async function addActivity(data) {
+    if (isDemoUid(uid)) return demoDb.add('activities', { year, ...data, ...yearOf(data) })
     await addDoc(collection(db, 'users', uid, 'activities'), {
       year, // fallback for entries without a date
       ...data,
@@ -57,10 +67,12 @@ export function useActivities(uid, year) {
   }
 
   async function removeActivity(id) {
+    if (isDemoUid(uid)) return demoDb.remove('activities', id)
     await deleteDoc(doc(db, 'users', uid, 'activities', id))
   }
 
   async function updateActivity(id, data) {
+    if (isDemoUid(uid)) return demoDb.update('activities', id, { ...data, ...yearOf(data) })
     await updateDoc(doc(db, 'users', uid, 'activities', id), { ...data, ...yearOf(data) })
   }
 

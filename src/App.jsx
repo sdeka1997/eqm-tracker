@@ -3,10 +3,20 @@ import { onAuthStateChanged, signInWithPopup, signOut, GoogleAuthProvider } from
 import { auth, googleProvider } from './firebase'
 import Dashboard from './components/Dashboard'
 import Spinner from './components/Spinner'
+import { DEMO_USER, resetDemo } from './demo/demoStore'
+
+const DEMO_KEY = 'atmos_demo'
+
+// Demo mode can be entered from the sign-in page or with a ?demo link.
+function initialDemo() {
+  if (new URLSearchParams(window.location.search).has('demo')) return true
+  try { return sessionStorage.getItem(DEMO_KEY) === '1' } catch { return false }
+}
 
 export default function App() {
   const [user, setUser] = useState(undefined)
   const [calendarToken, setCalendarToken] = useState(() => sessionStorage.getItem('cal_token') || null)
+  const [demo, setDemo] = useState(initialDemo)
 
   useEffect(() => {
     return onAuthStateChanged(auth, setUser)
@@ -25,6 +35,20 @@ export default function App() {
     }
   }
 
+  function enterDemo() {
+    sessionStorage.setItem(DEMO_KEY, '1')
+    setDemo(true)
+  }
+
+  function exitDemo() {
+    sessionStorage.removeItem(DEMO_KEY)
+    resetDemo()
+    const url = new URL(window.location.href)
+    url.searchParams.delete('demo')
+    window.history.replaceState(null, '', url)
+    setDemo(false)
+  }
+
   async function handleRefreshGmailToken() {
     try {
       const result = await signInWithPopup(auth, googleProvider)
@@ -38,6 +62,10 @@ export default function App() {
       console.error('Token refresh error', err)
     }
     return null
+  }
+
+  if (demo && !user) {
+    return <Dashboard user={DEMO_USER} onSignOut={exitDemo} onSignIn={() => { exitDemo(); handleSignIn() }} />
   }
 
   if (user === undefined) {
@@ -67,6 +95,13 @@ export default function App() {
             </svg>
             Sign in with Google
           </button>
+          <button
+            onClick={enterDemo}
+            className="w-full mt-3 border border-slate-200 hover:border-alaska-blue hover:text-alaska-blue text-slate-600 font-semibold py-3 px-6 rounded-xl transition-colors"
+          >
+            Try the demo
+          </button>
+          <p className="text-xs text-slate-400 mt-3">No sign-in needed. Explore with sample data — nothing is saved.</p>
         </div>
       </div>
     )

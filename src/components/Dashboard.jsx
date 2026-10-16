@@ -16,10 +16,13 @@ import ReviewQueue from './ReviewQueue'
 import { usePending } from '../hooks/usePending'
 import { getCurrentTier, getNextTier, EARNING_METHODS, CURRENT_YEAR, calculateCardSpendPoints, countsTowardStatus, isFlight, isCardItem, getToday } from '../utils/calculations'
 import Spinner from './Spinner'
+import DemoFeatureNotice from './DemoFeatureNotice'
 
 const EARNING_METHOD_KEY = 'atmos_earning_method'
 
-export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGmailToken }) {
+export default function Dashboard({ user, calendarToken, onSignOut, onSignIn, onRefreshGmailToken }) {
+  // Demo mode runs on in-memory sample data: no Firestore, Gmail or Plaid.
+  const demo = !!user.isDemo
   const [year, setYear] = useState(CURRENT_YEAR)
   const [modal, setModal] = useState(null) // null | 'flight' | 'card' | 'calendar' | 'plaid' | 'flighty'
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(null) // null | 'flights' | 'card' | 'misc'
@@ -44,6 +47,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
 
   const [lastPoll, setLastPoll] = useState(null)
   useEffect(() => {
+    if (demo) return
     getDoc(doc(db, 'users', user.uid)).then(snap => {
       if (snap.exists()) setLastPoll(snap.data().gmailLastPoll || null)
     })
@@ -87,6 +91,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
 
   // Watch card connection state
   useEffect(() => {
+    if (demo) return
     return onSnapshot(doc(db, 'users', user.uid), snap => {
       setPlaidConnected(!!snap.data()?.plaid?.accessToken)
     })
@@ -102,6 +107,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
   const [allPlaidIds, setAllPlaidIds] = useState(new Set())
   const [latestCardDate, setLatestCardDate] = useState('')
   useEffect(() => {
+    if (demo) return
     const q = query(
       collection(db, 'users', user.uid, 'activities'),
       where('type', '==', 'card_spend'),
@@ -116,6 +122,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
   // Track all imported Flighty IDs across all years for deduplication
   const [allFlightyIds, setAllFlightyIds] = useState(new Set())
   useEffect(() => {
+    if (demo) return
     const q = query(
       collection(db, 'users', user.uid, 'activities'),
       where('importedFrom', '==', 'flighty_csv'),
@@ -128,6 +135,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
   // Track all confirmed Gmail activities for deduplication
   const [allGmailFlightKeys, setAllGmailFlightKeys] = useState(new Set())
   useEffect(() => {
+    if (demo) return
     const q = query(
       collection(db, 'users', user.uid, 'activities'),
       where('importedFrom', '==', 'gmail_sync'),
@@ -143,6 +151,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
   // Indexed by every code in confirmationNumbers so codeshare alternate PNRs also match.
   const [allActivitiesByPNR, setAllActivitiesByPNR] = useState(new Map())
   useEffect(() => {
+    if (demo) return
     return onSnapshot(collection(db, 'users', user.uid, 'activities'), snap => {
       const byPNR = new Map()
       snap.docs.forEach(d => {
@@ -248,20 +257,38 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                     onClick={() => { setShowProfileMenu(false); onSignOut() }}
                     className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 transition-colors"
                   >
-                    Sign out
+                    {demo ? 'Exit demo' : 'Sign out'}
                   </button>
-                  <button
-                    onClick={() => { setShowProfileMenu(false); setConfirmDeleteAccount(true) }}
-                    className="w-full text-left px-3 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors"
-                  >
-                    Delete account
-                  </button>
+                  {!demo && (
+                    <button
+                      onClick={() => { setShowProfileMenu(false); setConfirmDeleteAccount(true) }}
+                      className="w-full text-left px-3 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors"
+                    >
+                      Delete account
+                    </button>
+                  )}
                 </div>
               )}
             </div>
           </div>
         </div>
       </header>
+
+      {demo && (
+        <div className="bg-amber-50 border-b border-amber-200">
+          <div className="max-w-6xl mx-auto px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-sm">
+            <p className="text-amber-800">
+              <span className="font-semibold">Demo mode</span> — sample data, changes aren't saved. Add, edit, or confirm anything you like.
+            </p>
+            <div className="flex items-center gap-3">
+              <button onClick={onSignOut} className="text-amber-700 hover:underline">Exit demo</button>
+              <button onClick={onSignIn} className="bg-alaska-blue hover:bg-alaska-navy text-white font-medium px-3 py-1 rounded-lg transition-colors">
+                Sign in with Google
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="max-w-6xl mx-auto px-4 py-6">
         <div className="lg:grid lg:grid-cols-5 lg:gap-6 flex flex-col gap-6">
@@ -490,7 +517,10 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                   onDone={() => setModal(null)}
                 />
               )}
-              {modal === 'plaid' && (
+              {demo && (modal === 'plaid' || modal === 'calendar') && (
+                <DemoFeatureNotice feature={modal} onClose={() => setModal(null)} />
+              )}
+              {!demo && modal === 'plaid' && (
                 <PlaidSync
                   uid={user.uid}
                   existingPlaidIds={allPlaidIds}
@@ -499,7 +529,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                   onCancel={() => setModal(null)}
                 />
               )}
-              {modal === 'calendar' && (
+              {!demo && modal === 'calendar' && (
                 <GmailSync
                   uid={user.uid}
                   accessToken={calendarToken}
