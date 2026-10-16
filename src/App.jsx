@@ -64,8 +64,10 @@ export default function App() {
     return null
   }
 
-  if (demo && !user) {
-    return <Dashboard user={DEMO_USER} onSignOut={exitDemo} />
+  // Demo mode wins even when signed in, so the ?demo link always shows the demo.
+  // It never touches the signed-in account; Exit demo returns to it.
+  if (demo) {
+    return <Dashboard key="demo" user={DEMO_USER} onSignOut={exitDemo} />
   }
 
   if (user === undefined) {
@@ -109,6 +111,7 @@ export default function App() {
 
   return (
     <Dashboard
+      key={user.uid}
       user={user}
       calendarToken={calendarToken}
       onSignOut={() => { signOut(auth); sessionStorage.removeItem('cal_token') }}
