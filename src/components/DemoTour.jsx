@@ -13,7 +13,7 @@ const flightRow = f => f && `[data-flight-key="${f.date}|${f.origin}|${f.destina
 const STEPS = [
   {
     title: 'Welcome to Atmos Tracker',
-    body: () => 'This app tracks Alaska Airlines Atmos Rewards status points across flights, credit card spend, and bonuses, then shows how close you are to the next tier. This quick tour takes about a minute.',
+    body: () => 'Alaska\'s site shows the status points that have posted. This shows where you\'ll end up: flights you\'ve booked, card spend, and bonuses all count toward a projected tier. This quick tour takes about a minute.',
     next: 'Start the tour',
   },
   {
