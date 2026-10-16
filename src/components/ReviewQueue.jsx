@@ -8,7 +8,7 @@ function EmailPreviewModal({ subject, from, html, onClose }) {
   useEscapeClose(onClose)
 
   return (
-    <Modal onClose={onClose} maxWidth="max-w-2xl" className="max-h-[85vh] flex flex-col">
+    <Modal onClose={onClose} maxWidth="max-w-2xl" className="h-[85vh] flex flex-col">
         <div className="p-4 border-b border-slate-100 flex items-start justify-between gap-3 shrink-0">
           <div className="min-w-0">
             <p className="font-semibold text-slate-800 truncate">{subject || '(no subject)'}</p>
@@ -19,7 +19,7 @@ function EmailPreviewModal({ subject, from, html, onClose }) {
         <iframe
           srcDoc={html || '<p style="font-family:sans-serif;color:#888;padding:16px">(no HTML content)</p>'}
           sandbox="allow-same-origin"
-          className="flex-1 w-full rounded-b-2xl"
+          className="flex-1 min-h-0 w-full rounded-b-2xl"
           title="Email preview"
         />
     </Modal>
