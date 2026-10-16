@@ -4,6 +4,7 @@ import {
   query, serverTimestamp, setDoc, writeBatch,
 } from 'firebase/firestore'
 import { db } from '../firebase'
+import { isDemoUid, subscribeDemo, demoDb } from '../demo/demoStore'
 
 // Identity of a queued Gmail flight. Keyed per segment, not per booking: a
 // multi-leg itinerary shares one PNR and each leg needs its own queue entry.
@@ -22,6 +23,13 @@ export function usePending(uid) {
 
   useEffect(() => {
     if (!uid) return
+    if (isDemoUid(uid)) {
+      return subscribeDemo(state => {
+        const docs = [...state.pending].sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+        setPending(docs)
+        setLoading(false)
+      })
+    }
     const q = query(collection(db, 'users', uid, 'pending'))
     const unsub = onSnapshot(
       q,
@@ -52,6 +60,10 @@ export function usePending(uid) {
       const inConfirmed = existingFlightyIds?.has(data.flightyId)
       if (inPending || inConfirmed) return false
     }
+    if (isDemoUid(uid)) {
+      demoDb.add('pending', data)
+      return true
+    }
     // Deduplicate Gmail imports by PNR+segment (primary) then flightNumber+date (fallback)
     if (data.importedFrom === 'gmail_sync') {
       const dedupeKey = gmailDedupeKey(data)
@@ -77,14 +89,17 @@ export function usePending(uid) {
   }
 
   async function updatePending(id, updates) {
+    if (isDemoUid(uid)) return demoDb.update('pending', id, updates)
     await setDoc(doc(db, 'users', uid, 'pending', id), updates, { merge: true })
   }
 
   async function dismissPending(id) {
+    if (isDemoUid(uid)) return demoDb.remove('pending', id)
     await deleteDoc(doc(db, 'users', uid, 'pending', id))
   }
 
   async function clearAllPending() {
+    if (isDemoUid(uid)) return demoDb.clear('pending')
     const batch = writeBatch(db)
     pending.forEach(p => batch.delete(doc(db, 'users', uid, 'pending', p.id)))
     await batch.commit()

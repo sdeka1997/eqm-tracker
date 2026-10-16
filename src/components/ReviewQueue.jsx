@@ -162,7 +162,7 @@ function CardSpendReviewCard({ item, onConfirm, onSkip }) {
 
 // ── Mobile swipe card ────────────────────────────────────────────────────────
 
-function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity, onConfirm, onDismiss, onCanConfirmChange, confirmBlocked }) {
+function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity, onConfirm, onDismiss, onCanConfirmChange, confirmBlocked, allowDiscard }) {
   const isFlightItem = isFlight(item)
   const [showEmail, setShowEmail] = useState(false)
   const [bookingType, setBookingType] = useState(item.bookingType || '')
@@ -282,16 +282,20 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
 
         {/* Action buttons */}
         <div className="flex border-t border-slate-100" onPointerDown={e => e.stopPropagation()}>
-          <button
-            onClick={e => { e.stopPropagation(); onDismiss() }}
-            className="flex-1 py-3 text-sm text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-bl-2xl transition-colors font-medium"
-          >
-            ← Discard
-          </button>
-          <div className="w-px bg-slate-100" />
+          {allowDiscard && (
+            <>
+              <button
+                onClick={e => { e.stopPropagation(); onDismiss() }}
+                className="flex-1 py-3 text-sm text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-bl-2xl transition-colors font-medium"
+              >
+                ← Discard
+              </button>
+              <div className="w-px bg-slate-100" />
+            </>
+          )}
           <button
             onClick={e => { e.stopPropagation(); handleConfirmTap() }}
-            className="flex-1 py-3 text-sm text-alaska-blue hover:bg-alaska-blue hover:text-white rounded-br-2xl transition-colors font-semibold"
+            className={`flex-1 py-3 text-sm text-alaska-blue hover:bg-alaska-blue hover:text-white ${allowDiscard ? 'rounded-br-2xl' : 'rounded-b-2xl'} transition-colors font-semibold`}
           >
             Confirm →
           </button>
@@ -329,7 +333,7 @@ function CardPeek({ item }) {
   )
 }
 
-function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
+function SwipeQueue({ pending, earningMethod, onConfirm, onSkip, allowDiscard }) {
   const [dismissedIds, setDismissedIds] = useState(new Set())
   const [confirmedIds, setConfirmedIds] = useState(new Set())
   const [undoQueue, setUndoQueue] = useState([]) // [{ id, label, timeoutId }]
@@ -380,7 +384,8 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
 
   function handlePointerMove(e) {
     if (!isDraggingRef.current) return
-    setOffsetX(e.clientX - startXRef.current)
+    const dx = e.clientX - startXRef.current
+    setOffsetX(allowDiscard ? dx : Math.max(0, dx))
   }
 
   function handlePointerUp() {
@@ -481,6 +486,7 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
               onDismiss={() => doDismiss(currentItem)}
               onCanConfirmChange={(v) => { canConfirmRef.current = v }}
               confirmBlocked={confirmBlocked}
+              allowDiscard={allowDiscard}
             />
           </div>
         </div>
@@ -493,10 +499,10 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
       )}
 
       {queue.length > 1 && (
-        <p className="text-center text-xs text-slate-400 mt-1">{queue.length} remaining · swipe right to confirm, left to discard</p>
+        <p className="text-center text-xs text-slate-400 mt-1">{queue.length} remaining · swipe right to confirm{allowDiscard && ', left to discard'}</p>
       )}
       {queue.length === 1 && (
-        <p className="text-center text-xs text-slate-400 mt-1">swipe right to confirm, left to discard</p>
+        <p className="text-center text-xs text-slate-400 mt-1">swipe right to confirm{allowDiscard && ', left to discard'}</p>
       )}
     </div>
   )
@@ -504,7 +510,7 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip }) {
 
 // ── Main export ──────────────────────────────────────────────────────────────
 
-export default function ReviewQueue({ uid, pending, earningMethod, onConfirm, onSkip }) {
+export default function ReviewQueue({ uid, pending, earningMethod, onConfirm, onSkip, allowDiscard = true }) {
   if (pending.length === 0) return null
 
   const flights = pending.filter(p => isFlight(p))
@@ -533,6 +539,7 @@ export default function ReviewQueue({ uid, pending, earningMethod, onConfirm, on
         earningMethod={earningMethod}
         onConfirm={onConfirm}
         onSkip={onSkip}
+        allowDiscard={allowDiscard}
       />
     </div>
   )

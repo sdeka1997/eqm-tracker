@@ -16,10 +16,25 @@ import ReviewQueue from './ReviewQueue'
 import { usePending } from '../hooks/usePending'
 import { getCurrentTier, getNextTier, EARNING_METHODS, CURRENT_YEAR, calculateCardSpendPoints, countsTowardStatus, isFlight, isCardItem, getToday } from '../utils/calculations'
 import Spinner from './Spinner'
+import DemoCardSync from './DemoCardSync'
+import DemoGmailScan from './DemoGmailScan'
+import DemoTour from './DemoTour'
 
 const EARNING_METHOD_KEY = 'atmos_earning_method'
 
 export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGmailToken }) {
+  // Demo mode runs on in-memory sample data: no Firestore, Gmail or Plaid.
+  const demo = !!user.isDemo
+  // Every entry into the demo starts from fresh sample data, so it gets the tour too.
+  const [tourOpen, setTourOpen] = useState(demo)
+  const [tourEvents, setTourEvents] = useState({ confirmed: 0, gmailImported: 0, cancellationResolved: 0, cardSynced: 0 })
+  // Flights the tour points at: the one just confirmed, and the one the demo Gmail scan flagged.
+  const [lastConfirmed, setLastConfirmed] = useState(null)
+  const [flaggedFlight, setFlaggedFlight] = useState(null)
+  const [lastCardSync, setLastCardSync] = useState(null)
+  const bumpTourEvent = (name) => setTourEvents(e => ({ ...e, [name]: e[name] + 1 }))
+
+  const closeTour = () => setTourOpen(false)
   const [year, setYear] = useState(CURRENT_YEAR)
   const [modal, setModal] = useState(null) // null | 'flight' | 'card' | 'calendar' | 'plaid' | 'flighty'
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(null) // null | 'flights' | 'card' | 'misc'
@@ -44,6 +59,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
 
   const [lastPoll, setLastPoll] = useState(null)
   useEffect(() => {
+    if (demo) return
     getDoc(doc(db, 'users', user.uid)).then(snap => {
       if (snap.exists()) setLastPoll(snap.data().gmailLastPoll || null)
     })
@@ -87,6 +103,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
 
   // Watch card connection state
   useEffect(() => {
+    if (demo) return
     return onSnapshot(doc(db, 'users', user.uid), snap => {
       setPlaidConnected(!!snap.data()?.plaid?.accessToken)
     })
@@ -102,6 +119,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
   const [allPlaidIds, setAllPlaidIds] = useState(new Set())
   const [latestCardDate, setLatestCardDate] = useState('')
   useEffect(() => {
+    if (demo) return
     const q = query(
       collection(db, 'users', user.uid, 'activities'),
       where('type', '==', 'card_spend'),
@@ -116,6 +134,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
   // Track all imported Flighty IDs across all years for deduplication
   const [allFlightyIds, setAllFlightyIds] = useState(new Set())
   useEffect(() => {
+    if (demo) return
     const q = query(
       collection(db, 'users', user.uid, 'activities'),
       where('importedFrom', '==', 'flighty_csv'),
@@ -128,6 +147,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
   // Track all confirmed Gmail activities for deduplication
   const [allGmailFlightKeys, setAllGmailFlightKeys] = useState(new Set())
   useEffect(() => {
+    if (demo) return
     const q = query(
       collection(db, 'users', user.uid, 'activities'),
       where('importedFrom', '==', 'gmail_sync'),
@@ -143,6 +163,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
   // Indexed by every code in confirmationNumbers so codeshare alternate PNRs also match.
   const [allActivitiesByPNR, setAllActivitiesByPNR] = useState(new Map())
   useEffect(() => {
+    if (demo) return
     return onSnapshot(collection(db, 'users', user.uid, 'activities'), snap => {
       const byPNR = new Map()
       snap.docs.forEach(d => {
@@ -196,6 +217,8 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
   async function handleConfirmPending(confirmed) {
     await addActivity({ ...confirmed, year: confirmed.year || year })
     await dismissPending(confirmed.id)
+    setLastConfirmed(confirmed)
+    bumpTourEvent('confirmed')
   }
 
 
@@ -248,20 +271,43 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                     onClick={() => { setShowProfileMenu(false); onSignOut() }}
                     className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 transition-colors"
                   >
-                    Sign out
+                    {demo ? 'Exit demo' : 'Sign out'}
                   </button>
-                  <button
-                    onClick={() => { setShowProfileMenu(false); setConfirmDeleteAccount(true) }}
-                    className="w-full text-left px-3 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors"
-                  >
-                    Delete account
-                  </button>
+                  {!demo && (
+                    <button
+                      onClick={() => { setShowProfileMenu(false); setConfirmDeleteAccount(true) }}
+                      className="w-full text-left px-3 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors"
+                    >
+                      Delete account
+                    </button>
+                  )}
                 </div>
               )}
             </div>
           </div>
         </div>
       </header>
+
+      {demo && (
+        <div className="bg-amber-50 border-b border-amber-200">
+          <div className="max-w-6xl mx-auto px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-sm">
+            <p className="text-amber-800">
+              <span className="font-semibold">Demo mode</span> — sample data, changes aren't saved. Add, edit, or confirm anything you like.
+            </p>
+            <div className="flex items-center gap-3">
+              {!tourOpen && (
+                <button
+                  onClick={() => { setLastConfirmed(null); setFlaggedFlight(null); setLastCardSync(null); setTourOpen(true) }}
+                  className="text-amber-700 hover:underline"
+                >
+                  Take the tour
+                </button>
+              )}
+              <button onClick={onSignOut} className="text-amber-700 hover:underline">Exit demo</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="max-w-6xl mx-auto px-4 py-6">
         <div className="lg:grid lg:grid-cols-5 lg:gap-6 flex flex-col gap-6">
@@ -270,7 +316,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
           <div className="lg:col-span-3 flex flex-col gap-6">
 
             {/* Status summary + tier progress */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 space-y-4">
+            <div data-tour="points" className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 space-y-4">
               <div className="flex items-start justify-between">
                 <div>
                   <div className="text-4xl font-black text-alaska-navy">{earnedPoints.toLocaleString()}</div>
@@ -338,19 +384,20 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
 
             {/* Review queue — mobile only (desktop renders in right column) */}
             {pending.length > 0 && (
-              <div className="lg:hidden" ref={reviewQueueRef}>
+              <div className="lg:hidden" ref={reviewQueueRef} data-tour="queue">
                 <ReviewQueue
                   pending={pending}
                   earningMethod={earningMethod}
                   onConfirm={handleConfirmPending}
                   onSkip={dismissPending}
+                  allowDiscard={!demo}
                   onClearAll={clearAllPending}
                 />
               </div>
             )}
 
             {/* Flights */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+            <div data-tour="flights" className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
               <div className="mb-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -366,6 +413,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                         ✈ Flighty
                       </button>
                       <button
+                        data-tour="gmail"
                         onClick={() => setModal('calendar')}
                         className="text-xs border border-slate-200 text-slate-500 hover:border-alaska-teal hover:text-alaska-teal px-2.5 py-0.5 rounded-full transition-colors"
                       >
@@ -421,7 +469,13 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                   </button>
                 </div>
               ) : (
-                <ActivityLog activities={activities} earningMethod={earningMethod} onDelete={removeActivity} onUpdate={updateActivity} />
+                <ActivityLog
+                  activities={activities}
+                  earningMethod={earningMethod}
+                  onDelete={removeActivity}
+                  onUpdate={updateActivity}
+                  onCancellationResolved={() => bumpTourEvent('cancellationResolved')}
+                />
               )}
             </div>
           </div>
@@ -432,19 +486,22 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
 
             {/* Review queue — desktop only (mobile renders above flights) */}
             {pending.length > 0 && (
-              <div className="hidden lg:block">
+              <div className="hidden lg:block" data-tour="queue">
                 <ReviewQueue
                   pending={pending}
                   earningMethod={earningMethod}
                   onConfirm={handleConfirmPending}
                   onSkip={dismissPending}
+                  allowDiscard={!demo}
                   onClearAll={clearAllPending}
                 />
               </div>
             )}
 
             {/* Card spend */}
+            <div data-tour="card">
             <CardSpendSection activities={activities} onDelete={removeActivity} onUpdate={updateActivity} onDeleteAll={() => setConfirmDeleteAll('card')} onAddManual={() => setModal('card')} onSync={() => setModal('plaid')} cardConnected={plaidConnected} />
+            </div>
             <MiscSection activities={activities} onAdd={addActivity} onDelete={removeActivity} />
 
 
@@ -463,7 +520,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
 
       {/* Modal */}
       {modal && modal !== 'setup' && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4" onClick={() => setModal(null)}>
+        <div data-modal className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4" onClick={() => setModal(null)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-slate-100 flex items-center justify-between">
               <h2 className="font-semibold text-slate-800">
@@ -490,7 +547,25 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                   onDone={() => setModal(null)}
                 />
               )}
-              {modal === 'plaid' && (
+              {demo && modal === 'plaid' && (
+                <DemoCardSync
+                  activities={activities}
+                  onAddActivity={addActivity}
+                  onSynced={result => { setLastCardSync(result); bumpTourEvent('cardSynced') }}
+                  onClose={() => setModal(null)}
+                />
+              )}
+              {demo && modal === 'calendar' && (
+                <DemoGmailScan
+                  knownPNRs={new Set([...pending, ...activities].map(a => a.confirmationNumber).filter(Boolean))}
+                  flights={activities}
+                  onAddPending={data => addPending(data)}
+                  onFlagCancellation={flight => updateActivity(flight.id, { possibleCancellation: true })}
+                  onImported={({ flagged }) => { setFlaggedFlight(flagged); bumpTourEvent('gmailImported') }}
+                  onClose={() => setModal(null)}
+                />
+              )}
+              {!demo && modal === 'plaid' && (
                 <PlaidSync
                   uid={user.uid}
                   existingPlaidIds={allPlaidIds}
@@ -499,7 +574,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
                   onCancel={() => setModal(null)}
                 />
               )}
-              {modal === 'calendar' && (
+              {!demo && modal === 'calendar' && (
                 <GmailSync
                   uid={user.uid}
                   accessToken={calendarToken}
@@ -538,9 +613,17 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
         </div>
       )}
 
+      {demo && tourOpen && (
+        <DemoTour
+          events={tourEvents}
+          context={{ earnedPoints, totalPoints, lastConfirmed, flaggedFlight, lastCardSync, pendingCount: pending.length }}
+          onClose={closeTour}
+        />
+      )}
+
       {/* Delete account confirmation */}
       {confirmDeleteAccount && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setConfirmDeleteAccount(false)}>
+        <div data-modal className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setConfirmDeleteAccount(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <div className="p-5">
               <h3 className="font-semibold text-slate-800 mb-1">Delete your account?</h3>
@@ -570,7 +653,7 @@ export default function Dashboard({ user, calendarToken, onSignOut, onRefreshGma
 
       {/* Delete all confirmation */}
       {confirmDeleteAll && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setConfirmDeleteAll(null)}>
+        <div data-modal className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setConfirmDeleteAll(null)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <div className="p-5">
               <h3 className="font-semibold text-slate-800 mb-1">

@@ -86,7 +86,7 @@ function FlightEditModal({ flight, earningMethod, onSave, onClose }) {
   )
 }
 
-export default function ActivityLog({ activities, earningMethod, onDelete, onUpdate }) {
+export default function ActivityLog({ activities, earningMethod, onDelete, onUpdate, onCancellationResolved }) {
   const currentMonth = new Date().toISOString().slice(0, 7)
   const [expanded, setExpanded] = useState(() => new Set(['__default__']))
   const [editing, setEditing] = useState(null)
@@ -186,6 +186,7 @@ export default function ActivityLog({ activities, earningMethod, onDelete, onUpd
                     return (
                     <div
                       key={a.id}
+                      data-flight-key={`${a.date}|${a.origin}|${a.destination}`}
                       onClick={() => setEditing(a.id)}
                       title="Click to edit this flight"
                       className={`cursor-pointer group transition-colors ${
@@ -237,13 +238,13 @@ export default function ActivityLog({ activities, earningMethod, onDelete, onUpd
                           <span className="text-xs text-amber-700">⚠ Possibly cancelled</span>
                           <div className="flex items-center gap-3 ml-3 shrink-0">
                             <button
-                              onClick={e => { e.stopPropagation(); handleCancelledDelete(a.id, `${a.origin} → ${a.destination}`) }}
+                              onClick={e => { e.stopPropagation(); handleCancelledDelete(a.id, `${a.origin} → ${a.destination}`); onCancellationResolved?.() }}
                               className="text-xs text-red-500 hover:text-red-700 font-medium"
                             >
                               Delete
                             </button>
                             <button
-                              onClick={e => { e.stopPropagation(); onUpdate(a.id, { possibleCancellation: false }) }}
+                              onClick={e => { e.stopPropagation(); onUpdate(a.id, { possibleCancellation: false }); onCancellationResolved?.() }}
                               className="text-xs text-amber-600 hover:text-amber-800 font-medium"
                             >
                               Dismiss

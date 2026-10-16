@@ -3,10 +3,20 @@ import { onAuthStateChanged, signInWithPopup, signOut, GoogleAuthProvider } from
 import { auth, googleProvider } from './firebase'
 import Dashboard from './components/Dashboard'
 import Spinner from './components/Spinner'
+import { DEMO_USER, resetDemo } from './demo/demoStore'
+
+const DEMO_KEY = 'atmos_demo'
+
+// Demo mode can be entered from the sign-in page or with a ?demo link.
+function initialDemo() {
+  if (new URLSearchParams(window.location.search).has('demo')) return true
+  try { return sessionStorage.getItem(DEMO_KEY) === '1' } catch { return false }
+}
 
 export default function App() {
   const [user, setUser] = useState(undefined)
   const [calendarToken, setCalendarToken] = useState(() => sessionStorage.getItem('cal_token') || null)
+  const [demo, setDemo] = useState(initialDemo)
 
   useEffect(() => {
     return onAuthStateChanged(auth, setUser)
@@ -25,6 +35,20 @@ export default function App() {
     }
   }
 
+  function enterDemo() {
+    sessionStorage.setItem(DEMO_KEY, '1')
+    setDemo(true)
+  }
+
+  function exitDemo() {
+    sessionStorage.removeItem(DEMO_KEY)
+    resetDemo()
+    const url = new URL(window.location.href)
+    url.searchParams.delete('demo')
+    window.history.replaceState(null, '', url)
+    setDemo(false)
+  }
+
   async function handleRefreshGmailToken() {
     try {
       const result = await signInWithPopup(auth, googleProvider)
@@ -38,6 +62,10 @@ export default function App() {
       console.error('Token refresh error', err)
     }
     return null
+  }
+
+  if (demo && !user) {
+    return <Dashboard user={DEMO_USER} onSignOut={exitDemo} />
   }
 
   if (user === undefined) {
@@ -54,7 +82,7 @@ export default function App() {
         <div className="bg-white rounded-2xl shadow-2xl p-10 max-w-sm w-full mx-4 text-center">
           <div className="text-5xl mb-4">✈️</div>
           <h1 className="text-2xl font-bold text-alaska-navy mb-1">Atmos Tracker</h1>
-          <p className="text-slate-500 text-sm mb-8">Track your Alaska Airlines status points</p>
+          <p className="text-slate-500 text-sm mb-8">See where your Alaska status will land, counting the trips you've already booked</p>
           <button
             onClick={handleSignIn}
             className="w-full bg-alaska-blue hover:bg-alaska-navy text-white font-semibold py-3 px-6 rounded-xl transition-colors flex items-center justify-center gap-3"
@@ -67,6 +95,13 @@ export default function App() {
             </svg>
             Sign in with Google
           </button>
+          <button
+            onClick={enterDemo}
+            className="w-full mt-3 border border-slate-200 hover:border-alaska-blue hover:text-alaska-blue text-slate-600 font-semibold py-3 px-6 rounded-xl transition-colors"
+          >
+            Try the demo
+          </button>
+          <p className="text-xs text-slate-400 mt-3">No sign-in needed. Explore with sample data — nothing is saved.</p>
         </div>
       </div>
     )
