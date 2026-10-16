@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { calculateFlightPoints, FARE_OPTIONS, BOOKING_TYPE_SHORT, isAwardBooking, isFlight } from '../utils/calculations'
+import { calculateFlightPoints, FARE_OPTIONS, BOOKING_TYPE_SHORT, isAwardBooking, isFlight, isManualFlight, findBookedMatch } from '../utils/calculations'
 import FlightFields from './FlightFields'
 import Modal from './Modal'
 import { useEscapeClose } from '../hooks/useEscapeClose'
@@ -162,7 +162,7 @@ function CardSpendReviewCard({ item, onConfirm, onSkip }) {
 
 // ── Mobile swipe card ────────────────────────────────────────────────────────
 
-function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity, onConfirm, onDismiss, onCanConfirmChange, confirmBlocked, allowDiscard }) {
+function SwipeCardContent({ item, earningMethod, manualMatch, confirmOpacity, dismissOpacity, onConfirm, onDismiss, onCanConfirmChange, onReplaceChange, confirmBlocked, allowDiscard }) {
   const isFlightItem = isFlight(item)
   const [showEmail, setShowEmail] = useState(false)
   const [bookingType, setBookingType] = useState(item.bookingType || '')
@@ -170,6 +170,8 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
   const [pnr, setPnr] = useState(item.confirmationNumber || '')
   const [distanceMiles, setDistanceMiles] = useState(item.distanceMiles || 0)
   const [showErrors, setShowErrors] = useState(false)
+  // On by default, so leaving a match unmade takes a deliberate untick.
+  const [replaceManual, setReplaceManual] = useState(true)
 
   const needsReview = isFlightItem && (item.fareSource === 'estimated' || item.fareSource === 'default' || !item.fareSource)
   const fareOpts = FARE_OPTIONS[bookingType] || []
@@ -198,7 +200,10 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
     setDistanceMiles(item.distanceMiles || 0)
     setShowEmail(false)
     setShowErrors(false)
+    setReplaceManual(true)
   }, [item.id])
+
+  useEffect(() => { onReplaceChange?.(replaceManual && manualMatch ? manualMatch.id : null) }, [replaceManual, manualMatch?.id])
 
   useEffect(() => { if (confirmBlocked) setShowErrors(true) }, [confirmBlocked])
   useEffect(() => { onCanConfirmChange?.(canConfirm) }, [canConfirm])
@@ -206,7 +211,7 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
   function handleConfirmTap() {
     if (!canConfirm) { setShowErrors(true); return }
     if (isFlightItem) {
-      onConfirm({ bookingType, fareOption, fareLabel: selectedFare?.label || '', multiplier: selectedFare?.multiplier ?? 1, distanceMiles, statusPoints: livePoints, confirmationNumber: pnr || null })
+      onConfirm({ bookingType, fareOption, fareLabel: selectedFare?.label || '', multiplier: selectedFare?.multiplier ?? 1, distanceMiles, statusPoints: livePoints, confirmationNumber: pnr || null, replaceManualId: replaceManual && manualMatch ? manualMatch.id : null })
     } else {
       onConfirm({})
     }
@@ -269,6 +274,7 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
           <div className="px-4 pb-3">
             <div className="space-y-2 bg-slate-50 rounded-xl p-3">
               <FlightFields
+                key={item.id}
                 distanceMiles={distanceMiles} onDistanceChange={v => { setDistanceMiles(v); setShowErrors(false) }}
                 bookingType={bookingType} onBookingTypeChange={v => { setBookingType(v); setShowErrors(false) }}
                 fareOption={fareOption} onFareOptionChange={setFareOption}
@@ -277,6 +283,21 @@ function SwipeCardContent({ item, earningMethod, confirmOpacity, dismissOpacity,
                 errors={fieldErrors}
               />
             </div>
+          </div>
+        )}
+
+        {/* Matching manual flight: offer to replace it with this booking */}
+        {isFlightItem && manualMatch && (
+          <div className="px-4 pb-3" onPointerDown={e => e.stopPropagation()}>
+            <label className="flex items-center gap-2 text-xs text-slate-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={replaceManual}
+                onChange={e => setReplaceManual(e.target.checked)}
+                className="rounded border-slate-300 text-alaska-blue focus:ring-alaska-blue"
+              />
+              <span>Replace your manual {manualMatch.origin} → {manualMatch.destination} ({manualMatch.date})</span>
+            </label>
           </div>
         )}
 
@@ -333,7 +354,7 @@ function CardPeek({ item }) {
   )
 }
 
-function SwipeQueue({ pending, earningMethod, onConfirm, onSkip, allowDiscard }) {
+function SwipeQueue({ pending, activities, earningMethod, onConfirm, onSkip, allowDiscard }) {
   const [dismissedIds, setDismissedIds] = useState(new Set())
   const [confirmedIds, setConfirmedIds] = useState(new Set())
   const [undoQueue, setUndoQueue] = useState([]) // [{ id, label, timeoutId }]
@@ -344,6 +365,7 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip, allowDiscard })
   const isDraggingRef = useRef(false)
   const startXRef = useRef(0)
   const canConfirmRef = useRef(true)
+  const replaceManualRef = useRef(null)
   const [confirmBlocked, setConfirmBlocked] = useState(false)
 
   const THRESHOLD = 80
@@ -402,6 +424,10 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip, allowDiscard })
 
   function doConfirm(item = currentItem, updatedData = {}) {
     if (!item) return
+    // A swipe confirms without the card's data, so carry the replace choice over.
+    if (!('replaceManualId' in updatedData) && replaceManualRef.current) {
+      updatedData = { ...updatedData, replaceManualId: replaceManualRef.current }
+    }
     if (isTouch) {
       setExitDir('right')
       setTimeout(() => {
@@ -480,11 +506,13 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip, allowDiscard })
             <SwipeCardContent
               item={currentItem}
               earningMethod={earningMethod}
+              manualMatch={isFlight(currentItem) ? activities.find(m => isManualFlight(m) && findBookedMatch(m, [currentItem])) || null : null}
               confirmOpacity={confirmOpacity}
               dismissOpacity={dismissOpacity}
               onConfirm={(updatedData) => doConfirm(currentItem, updatedData)}
               onDismiss={() => doDismiss(currentItem)}
               onCanConfirmChange={(v) => { canConfirmRef.current = v }}
+              onReplaceChange={(id) => { replaceManualRef.current = id }}
               confirmBlocked={confirmBlocked}
               allowDiscard={allowDiscard}
             />
@@ -510,7 +538,7 @@ function SwipeQueue({ pending, earningMethod, onConfirm, onSkip, allowDiscard })
 
 // ── Main export ──────────────────────────────────────────────────────────────
 
-export default function ReviewQueue({ uid, pending, earningMethod, onConfirm, onSkip, allowDiscard = true }) {
+export default function ReviewQueue({ uid, pending, activities = [], earningMethod, onConfirm, onSkip, allowDiscard = true }) {
   if (pending.length === 0) return null
 
   const flights = pending.filter(p => isFlight(p))
@@ -536,6 +564,7 @@ export default function ReviewQueue({ uid, pending, earningMethod, onConfirm, on
 
       <SwipeQueue
         pending={pending}
+        activities={activities}
         earningMethod={earningMethod}
         onConfirm={onConfirm}
         onSkip={onSkip}

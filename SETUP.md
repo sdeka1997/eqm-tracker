@@ -53,7 +53,8 @@ npm run build
 |---|---|
 | **Flight SP** | Auto-calculates route distance from IATA codes. Distance method: 1 SP/mi (Alaska), 1.5x domestic partner premium, 2.5x intl partner premium. Saver fares: 0.3x |
 | **Card spend** | Summit card: 1 SP per $2 spent |
-| **Anniversary bonus** | 10,000 SP — add via Card Spend form |
+| **Anniversary bonus** | 10,000 SP — add via Card Spend → + Add → Anniversary bonus |
+| **Planned purchases** | Card Spend → + Add: a purchase you expect to make. Counts as planned until you tap it and match it to the synced charge; stops counting a week after its date if unmatched |
+| **Manual flights** | Real flights come from Gmail sync or Flighty. A flight added by hand is a placeholder for a trip you haven't booked: match it to the synced flight (or tick "Replace" on the review card), or it stops counting once its date passes |
 | **Earning method** | Saved in browser — switch between distance / spend / segment |
 | **Tiers** | Silver 20K · Gold 40K · Platinum 80K · Titanium 135K (2026 thresholds) |
-| **Paste confirmation** | In the flight form, expand "Paste flight confirmation" and drop in your email text — it'll extract airport codes, date, cabin class, and flight number |

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { BOOKING_TYPES, FARE_OPTIONS, isAwardBooking } from '../utils/calculations'
 import { INPUT_CLS, INPUT_CLS_SM, LABEL_CLS } from '../utils/styles'
 
@@ -13,6 +14,10 @@ export default function FlightFields({
   hideDistance = false,
   errors = {},
 }) {
+  // Distance comes from the airports and is shown in the caller's header. Only
+  // ask for it when that failed (an airport missing from the database);
+  // decided once so the box doesn't vanish on the first keystroke.
+  const [askDistance] = useState(() => !distanceMiles)
   const cls = sizeClass[size]
   const lbl = labelClass[size]
   const fareOpts = FARE_OPTIONS[bookingType] || []
@@ -27,9 +32,9 @@ export default function FlightFields({
 
   return (
     <>
-      {!hideDistance && (
+      {!hideDistance && askDistance && (
       <div>
-        <label className={lbl}>Distance (miles)</label>
+        <label className={lbl}>Distance (miles): couldn't be calculated for this route</label>
         <input
           type="number"
           min="0"
@@ -70,6 +75,8 @@ export default function FlightFields({
         </div>
       )}
 
+      {/* Manual flights are planning placeholders with no booking, so they leave this out. */}
+      {onPnrChange && (
       <div>
         <label className={lbl}>Confirmation # (optional)</label>
         <input
@@ -80,6 +87,7 @@ export default function FlightFields({
           className={`w-full ${cls} uppercase placeholder:normal-case`}
         />
       </div>
+      )}
     </>
   )
 }

@@ -2,139 +2,166 @@ import { useState } from 'react'
 import { calculateCardPoints, getToday } from '../utils/calculations'
 import { INPUT_CLS, LABEL_CLS } from '../utils/styles'
 
-export default function CardSpendForm({ onSubmit, onCancel, onDone }) {
-  const [amount, setAmount] = useState('')
+function ProjectionForm({ onSubmit, onCancel, onDone, modeToggle }) {
   const [notes, setNotes] = useState('')
+  const [amount, setAmount] = useState('')
   const [date, setDate] = useState(getToday())
-  const [isAnniversary, setIsAnniversary] = useState(false)
+  const [added, setAdded] = useState([])
 
-  const spendPoints = calculateCardPoints(parseFloat(amount) || 0)
-  const totalPoints = spendPoints + (isAnniversary ? 10000 : 0)
+  const value = parseFloat(amount) || 0
+  const canAdd = value > 0 && !!date
 
-  const inputCls = INPUT_CLS
-  const labelCls = LABEL_CLS
+  async function save() {
+    const entry = { type: 'card_projection', date, amount: value, notes: notes.trim() }
+    await onSubmit(entry)
+    setAdded(a => [...a, entry])
+  }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
-    const entries = []
+    if (canAdd) await save()
+    onDone?.()
+  }
 
-    if (parseFloat(amount) > 0) {
-      entries.push({
-        type: 'card_spend',
-        date,
-        amount: parseFloat(amount),
-        notes,
-        statusPoints: spendPoints,
-      })
-    }
-
-    if (isAnniversary) {
-      entries.push({
-        type: 'anniversary_bonus',
-        date,
-        notes: 'Summit card anniversary bonus',
-        statusPoints: 10000,
-      })
-    }
-
-    entries.forEach(onSubmit)
-    if (onDone) onDone()
+  async function handleAddAnother() {
+    await save()
+    setNotes('')
+    setAmount('')
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label className={labelCls}>Spend Amount ($)</label>
-        <input
-          type="number"
-          min="0"
-          step="0.01"
-          className={inputCls}
-          placeholder="e.g. 1500.00"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-        />
-        <p className="text-xs text-slate-400 mt-1">Summit card: 1 SP per $2 spent</p>
-      </div>
+      {modeToggle}
+      <p className="text-xs text-slate-500 -mt-1">
+        A purchase you expect to make. It counts as planned until you match it to the real charge once that syncs.
+      </p>
+
+      {added.length > 0 && (
+        <ul className="text-xs space-y-1">
+          {added.map((a, i) => (
+            <li key={i} className="flex justify-between text-slate-500 border border-dashed border-slate-200 rounded-lg px-2.5 py-1.5">
+              <span className="truncate">✓ {a.notes || 'Projected spend'} · {a.date}</span>
+              <span className="shrink-0 ml-2">${a.amount.toLocaleString()}</span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <div>
-        <label className={labelCls}>Date</label>
+        <label className={LABEL_CLS}>What is it?</label>
         <input
-          type="date"
-          className={inputCls}
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-        />
-      </div>
-
-      <div>
-        <label className={labelCls}>Notes (optional)</label>
-        <input
-          className={inputCls}
-          placeholder="e.g. January statement"
+          className={INPUT_CLS}
+          placeholder="e.g. Property tax payment"
           value={notes}
-          onChange={(e) => setNotes(e.target.value)}
+          onChange={e => setNotes(e.target.value)}
+          autoFocus
         />
       </div>
 
-      {/* Anniversary bonus */}
-      <div className="border border-dashed border-alaska-teal/40 rounded-xl p-3 bg-alaska-teal/5">
-        <label className="flex items-center gap-2 cursor-pointer">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={LABEL_CLS}>Amount ($)</label>
           <input
-            type="checkbox"
-            checked={isAnniversary}
-            onChange={(e) => setIsAnniversary(e.target.checked)}
-            className="rounded border-slate-300 text-alaska-teal focus:ring-alaska-teal"
+            type="number" min="0" step="0.01"
+            className={INPUT_CLS}
+            placeholder="e.g. 500"
+            value={amount}
+            onChange={e => setAmount(e.target.value)}
           />
-          <div>
-            <span className="text-sm font-medium text-slate-700">Add your Summit card anniversary bonus</span>
-          </div>
-        </label>
+        </div>
+        <div>
+          <label className={LABEL_CLS}>Expected date</label>
+          <input
+            type="date"
+            className={INPUT_CLS}
+            value={date}
+            onChange={e => setDate(e.target.value)}
+          />
+        </div>
       </div>
 
-      {/* Points preview */}
-      <div className="bg-alaska-blue/5 border border-alaska-blue/20 rounded-xl p-3">
-        <div className="flex justify-between items-center">
-          {amount && parseFloat(amount) > 0 && (
-            <div className="text-center flex-1">
-              <div className="text-lg font-bold text-alaska-blue">+{spendPoints.toLocaleString()}</div>
-              <div className="text-xs text-slate-500">From spend</div>
-            </div>
-          )}
-          {isAnniversary && (
-            <div className="text-center flex-1">
-              <div className="text-lg font-bold text-alaska-teal">+10,000</div>
-              <div className="text-xs text-slate-500">Anniversary</div>
-            </div>
-          )}
-          {(amount || isAnniversary) && (
-            <div className="text-center flex-1 border-l border-slate-200 pl-3">
-              <div className="text-lg font-bold text-slate-800">+{totalPoints.toLocaleString()}</div>
-              <div className="text-xs text-slate-500">Total SP</div>
-            </div>
-          )}
-        </div>
-        {!amount && !isAnniversary && (
-          <p className="text-center text-xs text-slate-400">Enter an amount to see points</p>
+      <div className="border border-dashed border-alaska-blue/40 rounded-xl p-3 bg-alaska-blue/5 text-center">
+        {value > 0 ? (
+          <>
+            <div className="text-lg font-bold text-alaska-blue">+{calculateCardPoints(value).toLocaleString()} SP</div>
+            <div className="text-xs text-slate-500">planned</div>
+          </>
+        ) : (
+          <p className="text-xs text-slate-400">Enter an amount to see points</p>
         )}
       </div>
 
       <div className="flex gap-2 pt-1">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50 transition-colors"
-        >
-          Cancel
+        <button type="button" onClick={onCancel} className="border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50 transition-colors">
+          {added.length > 0 ? 'Close' : 'Cancel'}
         </button>
-        <button
-          type="submit"
-          disabled={!amount && !isAnniversary}
-          className="flex-1 bg-alaska-blue hover:bg-alaska-navy disabled:opacity-40 text-white py-2.5 rounded-xl text-sm font-semibold transition-colors"
-        >
+        <button type="button" onClick={handleAddAnother} disabled={!canAdd} className="flex-1 border border-alaska-blue/40 text-alaska-blue disabled:opacity-40 py-2.5 rounded-xl text-sm font-semibold hover:bg-alaska-blue/5 transition-colors">
+          Add another
+        </button>
+        <button type="submit" disabled={!canAdd} className="flex-1 bg-alaska-blue hover:bg-alaska-navy disabled:opacity-40 text-white py-2.5 rounded-xl text-sm font-semibold transition-colors">
           Add
         </button>
       </div>
     </form>
   )
+}
+
+const ANNIVERSARY_BONUS_SP = 10000
+
+function AnniversaryForm({ onSubmit, onCancel, onDone, modeToggle }) {
+  const [date, setDate] = useState(getToday())
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    await onSubmit({ type: 'anniversary_bonus', date, notes: 'Summit card anniversary bonus', statusPoints: ANNIVERSARY_BONUS_SP })
+    onDone?.()
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {modeToggle}
+      <p className="text-xs text-slate-500 -mt-1">
+        The Summit card's yearly bonus. A future date counts as planned until it arrives.
+      </p>
+      <div>
+        <label className={LABEL_CLS}>Anniversary date</label>
+        <input type="date" className={INPUT_CLS} value={date} onChange={e => setDate(e.target.value)} />
+      </div>
+      <div className="border border-dashed border-alaska-teal/40 rounded-xl p-3 bg-alaska-teal/5 text-center">
+        <div className="text-lg font-bold text-alaska-teal">+{ANNIVERSARY_BONUS_SP.toLocaleString()} SP</div>
+      </div>
+      <div className="flex gap-2 pt-1">
+        <button type="button" onClick={onCancel} className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-50 transition-colors">
+          Cancel
+        </button>
+        <button type="submit" disabled={!date} className="flex-1 bg-alaska-blue hover:bg-alaska-navy disabled:opacity-40 text-white py-2.5 rounded-xl text-sm font-semibold transition-colors">
+          Add
+        </button>
+      </div>
+    </form>
+  )
+}
+
+// Real card spend comes only from sync, so adding by hand is for planning:
+// purchases you expect to make, or the card's anniversary bonus.
+export default function CardSpendForm({ onSubmit, onCancel, onDone }) {
+  const [mode, setMode] = useState('purchase')
+
+  const modeToggle = (
+    <div className="flex bg-slate-100 rounded-xl p-1 text-sm font-medium">
+      {[['purchase', 'Planned purchase'], ['anniversary', 'Anniversary bonus']].map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          onClick={() => setMode(value)}
+          className={`flex-1 py-1.5 rounded-lg transition-colors ${mode === value ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+
+  const Form = mode === 'purchase' ? ProjectionForm : AnniversaryForm
+  return <Form onSubmit={onSubmit} onCancel={onCancel} onDone={onDone} modeToggle={modeToggle} />
 }
