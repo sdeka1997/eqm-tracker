@@ -4,20 +4,65 @@ import FlightFields from './FlightFields'
 import Modal from './Modal'
 import { useEscapeClose } from '../hooks/useEscapeClose'
 
-function EmailPreviewModal({ subject, from, html, onClose }) {
+const EMAIL_KIND_LABEL = {
+  booking: 'Booking',
+  change: 'Change',
+  cancellation: 'Cancellation',
+  reminder: 'Reminder',
+  other: 'Email',
+}
+
+// Gmail-imported items carry every email that fed the booking (newest first) in
+// `emails`. Older items and demo data only have the single emailHtml field.
+function itemEmails(item) {
+  if (Array.isArray(item?.emails) && item.emails.length) return item.emails
+  if (item?.emailHtml) return [{ subject: item.emailSubject, from: item.emailFrom, html: item.emailHtml }]
+  return []
+}
+
+function formatSent(ms) {
+  if (!ms) return ''
+  return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function EmailPreviewModal({ emails, onClose }) {
   useEscapeClose(onClose)
+  const [idx, setIdx] = useState(0)
+  const email = emails[idx] || {}
 
   return (
     <Modal onClose={onClose} maxWidth="max-w-2xl" className="h-[85vh] flex flex-col">
-        <div className="p-4 border-b border-slate-100 flex items-start justify-between gap-3 shrink-0">
-          <div className="min-w-0">
-            <p className="font-semibold text-slate-800 truncate">{subject || '(no subject)'}</p>
-            <p className="text-xs text-slate-400 truncate">{from}</p>
+        <div className="p-4 border-b border-slate-100 shrink-0 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-semibold text-slate-800 truncate">{email.subject || '(no subject)'}</p>
+              <p className="text-xs text-slate-400 truncate">
+                {email.from}{email.sentAt ? ` · ${formatSent(email.sentAt)}` : ''}
+              </p>
+            </div>
+            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl leading-none shrink-0">×</button>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl leading-none shrink-0">×</button>
+          {emails.length > 1 && (
+            <div className="flex gap-1.5 overflow-x-auto -mx-1 px-1">
+              {emails.map((e, i) => (
+                <button
+                  key={i}
+                  onClick={() => setIdx(i)}
+                  className={`shrink-0 text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                    i === idx
+                      ? 'bg-alaska-blue text-white border-alaska-blue'
+                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {EMAIL_KIND_LABEL[e.kind] || 'Email'}{e.sentAt ? ` · ${formatSent(e.sentAt)}` : ''}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <iframe
-          srcDoc={html || '<p style="font-family:sans-serif;color:#888;padding:16px">(no HTML content)</p>'}
+          key={idx}
+          srcDoc={email.html || '<p style="font-family:sans-serif;color:#888;padding:16px">(email too large to store — open it in Gmail)</p>'}
           sandbox="allow-same-origin"
           className="flex-1 min-h-0 w-full rounded-b-2xl"
           title="Email preview"
@@ -26,10 +71,15 @@ function EmailPreviewModal({ subject, from, html, onClose }) {
   )
 }
 
+function ViewEmailLabel({ count }) {
+  return count > 1 ? `view emails (${count})` : 'view email'
+}
+
 function FlightReviewCard({ flight, earningMethod, onConfirm, onSkip }) {
   const needsSelection = !flight.bookingType
   const [editing, setEditing] = useState(needsSelection || flight.fareSource === 'estimated' || flight.fareSource === 'default')
   const [showEmail, setShowEmail] = useState(false)
+  const emails = itemEmails(flight)
   const [bookingType, setBookingType] = useState(flight.bookingType || '')
   const [fareOption, setFareOption] = useState(flight.fareOption || '')
   const [pnr, setPnr] = useState(flight.confirmationNumber || '')
@@ -57,12 +107,7 @@ function FlightReviewCard({ flight, earningMethod, onConfirm, onSkip }) {
   return (
     <>
     {showEmail && (
-      <EmailPreviewModal
-        subject={flight.emailSubject}
-        from={flight.emailFrom}
-        html={flight.emailHtml}
-        onClose={() => setShowEmail(false)}
-      />
+      <EmailPreviewModal emails={emails} onClose={() => setShowEmail(false)} />
     )}
     <div className={`bg-white rounded-2xl border-2 transition-colors ${needsReview ? 'border-amber-200' : 'border-slate-100'}`}>
       <div className="px-4 pt-4 pb-3 flex items-start justify-between gap-3">
@@ -83,8 +128,8 @@ function FlightReviewCard({ flight, earningMethod, onConfirm, onSkip }) {
             <span className="text-sm text-slate-500">
               {flight.date}{flight.distanceMiles ? ` · ${flight.distanceMiles.toLocaleString()} mi` : ''}
             </span>
-            {flight.emailHtml && (
-              <button onClick={() => setShowEmail(true)} className="text-xs text-alaska-blue hover:underline">view email</button>
+            {emails.length > 0 && (
+              <button onClick={() => setShowEmail(true)} className="text-xs text-alaska-blue hover:underline"><ViewEmailLabel count={emails.length} /></button>
             )}
           </div>
         </div>
@@ -165,6 +210,7 @@ function CardSpendReviewCard({ item, onConfirm, onSkip }) {
 function SwipeCardContent({ item, earningMethod, manualMatch, confirmOpacity, dismissOpacity, onConfirm, onDismiss, onCanConfirmChange, onReplaceChange, confirmBlocked, allowDiscard }) {
   const isFlightItem = isFlight(item)
   const [showEmail, setShowEmail] = useState(false)
+  const emails = itemEmails(item)
   const [bookingType, setBookingType] = useState(item.bookingType || '')
   const [fareOption, setFareOption] = useState(item.fareOption || '')
   const [pnr, setPnr] = useState(item.confirmationNumber || '')
@@ -220,7 +266,7 @@ function SwipeCardContent({ item, earningMethod, manualMatch, confirmOpacity, di
   return (
     <>
       {showEmail && (
-        <EmailPreviewModal subject={item.emailSubject} from={item.emailFrom} html={item.emailHtml} onClose={() => setShowEmail(false)} />
+        <EmailPreviewModal emails={emails} onClose={() => setShowEmail(false)} />
       )}
       <div className={`bg-white rounded-2xl border-2 shadow-lg overflow-hidden relative select-none ${needsReview ? 'border-amber-200' : 'border-slate-100'}`}>
         {/* Confirm overlay — hidden when required fields are missing */}
@@ -252,13 +298,13 @@ function SwipeCardContent({ item, earningMethod, manualMatch, confirmOpacity, di
                 {isFlightItem && item.distanceMiles ? ` · ${item.distanceMiles.toLocaleString()} mi` : ''}
                 {!isFlightItem && item.notes ? ` · ${item.notes}` : ''}
               </span>
-              {item.emailHtml && (
+              {emails.length > 0 && (
                 <button
                   onPointerDown={e => e.stopPropagation()}
                   onClick={e => { e.stopPropagation(); setShowEmail(true) }}
                   className="text-xs text-alaska-blue hover:underline"
                 >
-                  view email
+                  <ViewEmailLabel count={emails.length} />
                 </button>
               )}
             </div>

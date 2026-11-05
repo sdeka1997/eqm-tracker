@@ -15,6 +15,34 @@ function timeAgo(isoString) {
   return `${Math.floor(hrs / 24)}d ago`
 }
 
+// Click-to-edit date. Each complete date commits as it's entered (onChange), so
+// nothing depends on what the input reports at blur. Always open on a full date:
+// Safari draws an empty date input as a greyed-out placeholder, and editing one
+// segment of that leaves the others blank, so the value comes back ''.
+function DateField({ value, min, max, onChange, title }) {
+  const [editing, setEditing] = useState(false)
+  if (editing) {
+    return (
+      <input
+        type="date"
+        defaultValue={value}
+        min={min}
+        max={max}
+        onChange={e => { if (e.target.value) onChange(e.target.value) }}
+        onBlur={() => setEditing(false)}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') e.target.blur() }}
+        className="border-b border-alaska-blue bg-transparent outline-none text-xs text-slate-600 w-30"
+        autoFocus
+      />
+    )
+  }
+  return (
+    <span onClick={() => setEditing(true)} className="underline decoration-dashed cursor-pointer hover:text-alaska-blue" title={title}>
+      {value}
+    </span>
+  )
+}
+
 export default function GmailSync({ uid, accessToken, earningMethod, onAddPending, onFlagCancellation, existingSegmentsByPNR, onCancel, onRefreshToken, userName, lastPoll, onPollComplete }) {
   const [state, setState] = useState('idle')
   const [errorMsg, setErrorMsg] = useState('')
@@ -41,9 +69,12 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
     ? new Date(new Date(lastPoll).getTime() - 86400000).toISOString().slice(0, 10)
     : new Date(Date.now() - 21 * 86400000).toISOString().slice(0, 10)
   const [sinceOverride, setSinceOverride] = useState(null)
-  const [editingSince, setEditingSince] = useState(false)
-  const sinceInputRef = useRef(null)
+  // null = up to now (an open-ended sync). A set end date makes this a backfill.
+  const [untilDate, setUntilDate] = useState(null)
   const sinceDate = sinceOverride ?? defaultSinceDate
+  // Built by hand: toLocaleDateString('en-CA') isn't reliably YYYY-MM-DD across browsers.
+  const now = new Date()
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 
   const [testResult, setTestResult] = useState('')
 
@@ -89,6 +120,7 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
         onProgress: p => { progressRef.current = p; setProgress(p) },
         userName,
         sinceDate,
+        untilDate,
         existingSegmentsByPNR,
       })
       setDebugLog(log)
@@ -106,8 +138,10 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
       }
 
       // Advancing lastPoll past emails Gemini never managed to read would skip them
-      // forever on the next sync, so only move the marker on a clean run.
-      if (failedBatches.length === 0) {
+      // forever on the next sync, so only move the marker on a clean run. A sync with
+      // an end date is a backfill of a past window; moving the marker to now would
+      // skip everything between that end date and today.
+      if (failedBatches.length === 0 && !(untilDate && untilDate < today)) {
         await onPollComplete(new Date().toISOString())
       }
       setSummary({ added, cancelled, failedBatches })
@@ -187,25 +221,23 @@ export default function GmailSync({ uid, accessToken, earningMethod, onAddPendin
               <p>Searches Gmail for new flight emails since your last poll, extracts flight details using Gemini AI, and adds them to your review queue.</p>
               <p className="text-xs text-slate-400">
                 {lastPoll ? `Last polled ${timeAgo(lastPoll)}` : 'First poll'} · Searching from{' '}
-                {editingSince ? (
-                  <input
-                    ref={sinceInputRef}
-                    type="date"
-                    defaultValue={sinceDate}
-                    onBlur={e => { setSinceOverride(e.target.value || null); setEditingSince(false) }}
-                    onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') e.target.blur() }}
-                    className="border-b border-alaska-blue bg-transparent outline-none text-xs text-slate-600 w-30"
-                    autoFocus
+                <DateField
+                  value={sinceDate}
+                  max={untilDate || today}
+                  onChange={setSinceOverride}
+                  title="Click to change start date"
+                />
+                {/* End date is a debugging tool for backfilling a past window — localhost only, like the debug log. */}
+                {isDev && <>
+                  {' '}to{' '}
+                  <DateField
+                    value={untilDate ?? today}
+                    min={sinceDate}
+                    max={today}
+                    onChange={setUntilDate}
+                    title="Click to change end date"
                   />
-                ) : (
-                  <span
-                    onClick={() => setEditingSince(true)}
-                    className="underline decoration-dashed cursor-pointer hover:text-alaska-blue"
-                    title="Click to change start date"
-                  >
-                    {sinceDate}
-                  </span>
-                )}
+                </>}
               </p>
             </div>
             <div className="flex items-center justify-between text-xs text-slate-400">
