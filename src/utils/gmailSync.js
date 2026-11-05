@@ -174,9 +174,32 @@ async function fetchGeminiWithTimeout(url, options, label) {
   }
 }
 
+function sentDateLabel(internalDate) {
+  if (!internalDate) return 'unknown'
+  const d = new Date(internalDate)
+  const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return `${ymd} (${d.toLocaleDateString('en-US', { weekday: 'long' })})`
+}
+
+// Safety net for year inference. A booking or change email describes a flight that
+// hasn't happened yet, so a departure well before the email was sent means the model
+// guessed the wrong year for a year-less date. Roll it forward one year, but only when
+// that lands in the plausible booking window (airlines sell ~11 months out).
+const DAY_MS = 86400000
+function correctPastYear(date, internalDate, emailKind) {
+  if (!internalDate || (emailKind !== 'booking' && emailKind !== 'change')) return date
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  if (!m) return date
+  const dep = Date.UTC(+m[1], +m[2] - 1, +m[3])
+  if (dep >= internalDate - 2 * DAY_MS) return date
+  const bumped = Date.UTC(+m[1] + 1, +m[2] - 1, +m[3])
+  if (bumped < internalDate - 2 * DAY_MS || bumped > internalDate + 366 * DAY_MS) return date
+  return `${+m[1] + 1}-${m[2]}-${m[3]}`
+}
+
 async function extractFlightsBatch(emails, geminiKey, { userName, onRetry, models: candidateModels = GEMINI_MODELS } = {}) {
   const numbered = emails.map((e, i) =>
-    `--- EMAIL ${i} ---\nFrom: ${e.emailFrom}\nSubject: ${e.emailSubject}\n${prepareHtmlForGemini(e.emailHtml) || e.text}`
+    `--- EMAIL ${i} ---\nFrom: ${e.emailFrom}\nSent: ${sentDateLabel(e.internalDate)}\nSubject: ${e.emailSubject}\n${prepareHtmlForGemini(e.emailHtml) || e.text}`
   ).join('\n\n')
 
   const passengerClause = userName
@@ -202,6 +225,11 @@ Each segment must have:
 - "origin": 3-letter IATA airport code
 - "destination": 3-letter IATA airport code
 - "date": departure date as YYYY-MM-DD
+
+Dates and years:
+- Airline emails often omit the year (e.g. "Thursday, January 14"). Infer it from the email's "Sent" date: a booking, change, or reminder is about an upcoming flight, so pick the first occurrence of that month and day on or after the Sent date — never a date before the email was sent.
+- If a weekday is given, the year you choose must make that weekday correct.
+- If the year appears anywhere in the email (subject line included), use it.
 
 Rules:
 - ${passengerClause}
@@ -298,7 +326,7 @@ ${numbered}`
   const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || '{}'
   try {
     const parsed = JSON.parse(raw)
-    return emails.map((_, i) => {
+    return emails.map((email, i) => {
       const entry = parsed[i] ?? parsed[String(i)] ?? {}
       const cancelled = entry.cancelled === true
       const emailKind = EMAIL_KINDS.has(entry.emailKind) ? entry.emailKind : 'other'
@@ -312,7 +340,7 @@ ${numbered}`
           flightNumber: s.flightNumber.toUpperCase().replace(/^([A-Z]{2})\s*(\d)/, '$1 $2'),
           origin: s.origin.toUpperCase(),
           destination: s.destination.toUpperCase(),
-          date: s.date,
+          date: correctPastYear(s.date, email.internalDate, emailKind),
           prefix: s.flightNumber.slice(0, 2).toUpperCase(),
         }))
         .filter(s => VALID_AIRLINE_PREFIXES.has(s.prefix))
@@ -321,6 +349,35 @@ ${numbered}`
   } catch {
     return emails.map(() => ({ cancelled: false, emailKind: 'other', confirmationNumbers: [], segments: [] }))
   }
+}
+
+// Every email that fed a booking, newest first, so the review card can show the
+// original confirmation alongside later schedule changes and reminders. Firestore
+// caps a document at 1 MiB, so stop adding older emails once the HTML gets large;
+// the newest one is always kept.
+const MAX_EMAILS_HTML_BYTES = 700 * 1024
+function emailRecord(email, emailKind) {
+  return {
+    subject: email.emailSubject || '',
+    from: email.emailFrom || '',
+    html: email.emailHtml || '',
+    sentAt: email.internalDate || null,
+    kind: emailKind,
+  }
+}
+function capEmails(records) {
+  const newestFirst = [...records].sort((a, b) => (b.sentAt || 0) - (a.sentAt || 0))
+  const kept = []
+  let bytes = 0
+  for (const r of newestFirst) {
+    bytes += r.html.length
+    if (kept.length > 0 && bytes > MAX_EMAILS_HTML_BYTES) {
+      kept.push({ ...r, html: '' })
+      continue
+    }
+    kept.push(r)
+  }
+  return kept
 }
 
 // Returns true if every segment in newSegs already exists in existingSegs (reminder check).
@@ -334,16 +391,24 @@ function isSubset(newSegs, existingSegs) {
 
 // existingSegmentsByPNR: Map<pnr, {origin, destination, date}[]> — confirmed activities keyed by PNR.
 // Used to detect reminders (subset) vs. genuine new/changed itineraries.
-export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, onProgress, userName, sinceDate, existingSegmentsByPNR = new Map() }) {
+export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, onProgress, userName, sinceDate, untilDate, existingSegmentsByPNR = new Map() }) {
   onProgress?.({ step: 'Searching for emails…', current: 0, total: 0 })
 
-  const afterClause = sinceDate
-    ? `after:${sinceDate.replace(/-/g, '/')}`
-    : `after:${new Date(Date.now() - 21 * 86400000).toISOString().slice(0, 10).replace(/-/g, '/')}`
+  // Gmail reads `after:YYYY/MM/DD` as midnight *Pacific*, so from any timezone east of
+  // that it silently drops mail received in the first hours of the chosen day (an email
+  // at 12:07 AM Central is 10:07 PM the previous day in Pacific). Pass local midnight
+  // as epoch seconds instead, which Gmail takes literally.
+  const sinceMs = sinceDate
+    ? new Date(`${sinceDate}T00:00:00`).getTime()
+    : Date.now() - 21 * 86400000
+  const afterClause = `after:${Math.floor(sinceMs / 1000)}`
+  // The end date is inclusive: stop at local midnight at the start of the next day.
+  const untilMs = untilDate ? new Date(`${untilDate}T00:00:00`).getTime() + 86400000 : null
+  const beforeClause = untilMs ? ` before:${Math.floor(untilMs / 1000)}` : ''
 
   // -from:me excludes mail you sent (incl. forwards) — Gmail search spans the whole
   // mailbox, so a flight you forward to someone else would otherwise be treated as yours.
-  const query = `(flight OR itinerary OR trip OR reservation OR boarding) -from:me -category:promotions -category:social -category:forums ${afterClause}`
+  const query = `(flight OR itinerary OR trip OR reservation OR boarding) -from:me -category:promotions -category:social -category:forums ${afterClause}${beforeClause}`
   const msgIds = await searchMessages(token, query)
 
   const total = msgIds.length
@@ -486,6 +551,7 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
           existingBooking.segments = segments
           existingBooking.email = email
         }
+        existingBooking.emails.push(emailRecord(email, emailKind))
         logEntry.disposition = 'pnr_merge'
         logEntry.detail = `Merged into booking ${existingBooking.confirmationNumber}${newCodes.length ? ` · added PNRs: ${newCodes.join(', ')}` : ''}${emailKind === 'reminder' ? ' · reminder, segments left as-is' : ''}`
         debugLog.push(logEntry)
@@ -537,6 +603,7 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
           confirmationNumbers: [...confirmationNumbers],
           segments,
           email,
+          emails: [emailRecord(email, emailKind)],
           logEntry,
         }
         confirmationNumbers.forEach(c => pnrToBooking.set(c, booking))
@@ -575,7 +642,7 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
             importedFrom: 'gmail_sync',
             emailSubject: email.emailSubject || '',
             emailFrom: email.emailFrom || '',
-            emailHtml: email.emailHtml || '',
+            emails: [emailRecord(email, emailKind)],
           })
           addedSegs.push(`${seg.flightNumber} ${seg.origin}→${seg.destination} ${seg.date}`)
         }
@@ -596,6 +663,7 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
     processedBookings.add(booking)
 
     const { confirmationNumber: primaryPNR, confirmationNumbers, segments, email, logEntry } = booking
+    const emails = capEmails(booking.emails)
 
     // Reminder check: all final segments already confirmed under any known PNR
     const matchedExistingPNR = confirmationNumbers.find(c => existingSegmentsByPNR.has(c))
@@ -640,7 +708,7 @@ export async function syncFlightsFromGmail(token, geminiKey, { earningMethod, on
         importedFrom: 'gmail_sync',
         emailSubject: email.emailSubject || '',
         emailFrom: email.emailFrom || '',
-        emailHtml: email.emailHtml || '',
+        emails,
       })
       addedSegs.push(`${seg.flightNumber} ${seg.origin}→${seg.destination} ${seg.date}`)
     }
